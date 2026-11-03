@@ -172,7 +172,7 @@
     PL.bpm0 = P.bpm;
     // controles
     $$('#plVoices button').forEach((b) => { const on = b.dataset.v === 'ALL'; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
-    $('#plGuide').checked = false; $('#plBassDown').checked = false;
+    $('#plGuide').checked = false; $('#plBassDown').checked = false; $('#plSADown').checked = false;
     $('#plLoop').setAttribute('aria-pressed', 'false');
     $('#plBpm').textContent = P.bpm;
     $('#plVol').value = APP.settings.master;
@@ -240,13 +240,24 @@
       cur.hidden = !mine;
       if (mine) { cur.style.left = (x - 1.5) / L.W * 100 + '%'; cur.style.top = c.y1 / L.H * 100 + '%'; cur.style.height = (c.y2 - c.y1) / L.H * 100 + '%'; }
     });
-    // acompanha o cursor com a rolagem
+    // acompanha o cursor com a rolagem: o sistema (todas as pautas) em reprodução fica inteiro à vista
     const sc = $('#plScore'), pg = $$('#plScore .pl-page')[c.page - 1]; if (!pg) return;
-    const top = pg.offsetTop + c.y1 / L.H * pg.offsetHeight, bottom = pg.offsetTop + c.y2 / L.H * pg.offsetHeight;
     if (APP.transport.state === 'playing' || force) {
-      if (top < sc.scrollTop + 8 || bottom > sc.scrollTop + sc.clientHeight - 8) sc.scrollTo({ top: Math.max(0, top - 24), behavior: 'smooth' });
-      const cx = pg.offsetLeft + x / L.W * pg.offsetWidth;
-      if (cx < sc.scrollLeft + 30 || cx > sc.scrollLeft + sc.clientWidth - 30) sc.scrollLeft = Math.max(0, cx - sc.clientWidth * 0.3);
+      const sr = sc.getBoundingClientRect(), pr = pg.getBoundingClientRect();
+      const pTop = pr.top - sr.top + sc.scrollTop, pLeft = pr.left - sr.left + sc.scrollLeft;   // posição da página dentro da área rolável
+      const top = pTop + c.y1 / L.H * pr.height, bottom = pTop + c.y2 / L.H * pr.height;
+      const key = c.page + ':' + Math.round(c.y1) + ':' + Math.round(pr.width);
+      const visible = top >= sc.scrollTop + 6 && bottom <= sc.scrollTop + sc.clientHeight - 6;
+      const cx = pLeft + x / L.W * pr.width;
+      const needX = cx < sc.scrollLeft + 30 || cx > sc.scrollLeft + sc.clientWidth - 30;
+      const left = needX ? Math.max(0, cx - sc.clientWidth * 0.3) : sc.scrollLeft;
+      const now = performance.now();
+      if (force || (key !== PL.sysKey && !visible)) {
+        const room = sc.clientHeight - (bottom - top);
+        sc.scrollTo({ top: Math.max(0, top - Math.max(8, Math.min(40, room / 2))), left, behavior: force ? 'auto' : 'smooth' });
+        PL.smoothUntil = now + 600;      // enquanto a rolagem suave acontece, não mexe na rolagem de novo (isso a cancelaria)
+      } else if (needX && now > (PL.smoothUntil || 0)) sc.scrollLeft = left;
+      PL.sysKey = key;
     }
   }
   function seekFromClick(pg, e) {
@@ -295,6 +306,7 @@
     const guide = $('#plGuide').checked, sel = PL.sel;
     VOICE_ORDER.forEach((k) => { CC.playMods.scale[k] = sel === 'ALL' || sel === k ? 1 : (guide ? 0.22 : 0); });
     CC.playMods.shift.B = $('#plBassDown').checked ? -12 : 0;
+    CC.playMods.shift.S = CC.playMods.shift.A = $('#plSADown').checked ? -12 : 0;
     APP.syncLevels();
   }
   $('#plVoices').addEventListener('click', (e) => {
@@ -312,6 +324,7 @@
   });
   $('#plGuide').addEventListener('change', applyVoices);
   $('#plBassDown').addEventListener('change', () => { applyVoices(); toast($('#plBassDown').checked ? 'Baixo uma oitava abaixo' : 'Baixo na altura escrita'); });
+  $('#plSADown').addEventListener('change', () => { applyVoices(); toast($('#plSADown').checked ? 'Soprano e contralto uma oitava abaixo' : 'Soprano e contralto na altura escrita'); });
   $('#plGuide').closest('.chk').classList.add('dim');
 
   /* cantores animados */

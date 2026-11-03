@@ -205,7 +205,7 @@
       const vcU = kind === 't' ? 0 : 2, vcL = kind === 't' ? 1 : 3;
       const U = lineObjs(events, mLen, vcU), L = lineObjs(events, mLen, vcL);
       const items = []; // {on, snd, q, notes, stem, line, rest, tieNext, tm}
-      const dedupe = (notes) => { const seen = new Set(), o = []; notes.forEach((n) => { const k = n.sp + '|' + n.oc + '|' + n.al; if (!seen.has(k)) { seen.add(k); o.push(n); } }); return o; };
+      const dedupe = (notes) => { const seen = new Map(), o = []; notes.forEach((n) => { const k = n.sp + '|' + n.oc + '|' + n.al; const prev = seen.get(k); if (!prev) { seen.set(k, n); o.push(n); } else if (!prev.lyr && n.lyr) prev.lyr = n.lyr; }); return o; };   // uníssono: não perde a letra escrita na outra voz
       // acordes compartilhados: mesma entrada e mesma duração nas duas vozes
       const lk = new Map(); L.forEach((o) => lk.set(o.on.toFixed(4) + '|' + o.dur.toFixed(4), o));
       const sharedKeys = new Set();
@@ -468,7 +468,7 @@
         // posições
         const scaleX = (c) => xm0 + lead + (c.x - 9) * f + 9 - (m.fwd ? 0 : 0);
         const colX = pl.cols.map((c) => xm0 + lead + 2 + c.x * f - 2 * f + 0 * 0);
-        pl.cols.forEach((c, ci) => { sysInfo.xs.push({ wq: m.start + c.on, x: colX[ci] }); layout.cols.push({ wq: m.start + c.on, page: pageNo, x: colX[ci], y1: yT - 10, y2: yB + STAFF_H + 6, mi }); });
+        pl.cols.forEach((c, ci) => { sysInfo.xs.push({ wq: m.start + c.on, x: colX[ci] }); layout.cols.push({ wq: m.start + c.on, page: pageNo, x: colX[ci], y1: yT - 10, y2: yB + STAFF_H + 6 + (only && nVerses ? 22 + (nVerses - 1) * LYR_LH - 6 : 0), mi }); });
         const xmEnd = xm0 + mw;
         // desenha cada pauta
         (only ? [SK] : ['t', 'b']).forEach((kind) => {

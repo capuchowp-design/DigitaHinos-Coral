@@ -16,6 +16,7 @@ Aplicativo gratuito para **ouvir os 480 hinos em coro** (soprano, contralto, ten
 - **Partitura da voz escolhida**: ao tocar em Soprano, Contralto, Tenor ou Baixo, a partitura mostra só aquela voz (uma pauta, com as letras). "Coro" volta às quatro vozes.
 - **Cantores animados**: quatro cantores (um por voz) abrem a boca de acordo com o áudio de cada voz. A opção "Mostrar os cantores" liga/desliga (a escolha fica salva).
 - **Baixo uma oitava abaixo**: liga/desliga.
+- **Soprano e contralto 8ª abaixo**: liga/desliga (para vozes masculinas); desligado, tocam na altura escrita.
 - Andamento (BPM), repetição, volume.
 - **Baixar PDF**: partitura em duas pautas (S+A e T+B) com armadura, fórmula de compasso, repetições, casas 1ª/2ª e as letras das estrofes (para os hinos em MXL).
 - **Editar arranjo**: abre o hino no compositor.
