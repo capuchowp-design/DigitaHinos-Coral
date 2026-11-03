@@ -168,7 +168,7 @@
     PL.total = acc;
     APP.setLength(Math.max(4, Math.ceil(acc * 4 - 1e-9)));
     APP.setLoop(false);
-    CC.resetPlayMods(); PL.sel = 'ALL';
+    CC.resetPlayMods(); CC.playMods.mono = true; PL.sel = 'ALL';
     PL.bpm0 = P.bpm;
     // controles
     $$('#plVoices button').forEach((b) => { const on = b.dataset.v === 'ALL'; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });

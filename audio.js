@@ -505,8 +505,28 @@
 
   /* Ajustes de reprodução usados pelo player de hinos (não fazem parte do projeto):
    *  scale[voz] = multiplicador de volume (0 = voz desligada); shift[voz] = transposição em semitons (−12 = uma oitava abaixo). */
-  const playMods = { scale: { S: 1, A: 1, T: 1, B: 1 }, shift: { S: 0, A: 0, T: 0, B: 0 } };
-  function resetPlayMods() { VOICE_ORDER.forEach((k) => { playMods.scale[k] = 1; playMods.shift[k] = 0; }); }
+  const playMods = { scale: { S: 1, A: 1, T: 1, B: 1 }, shift: { S: 0, A: 0, T: 0, B: 0 }, mono: false };
+  function resetPlayMods() { VOICE_ORDER.forEach((k) => { playMods.scale[k] = 1; playMods.shift[k] = 0; }); playMods.mono = false; }
+
+  /* Um cantor só canta uma nota por vez. Quando uma voz tem duas ou mais notas soando juntas (divisi),
+   * fica apenas uma: a MAIS GRAVE na altura escrita, ou a MAIS AGUDA quando a voz toca uma oitava abaixo.
+   * Devolve o conjunto de notas que NÃO devem tocar. */
+  function monoSkipSet(notes) {
+    const skip = new Set();
+    VOICE_ORDER.forEach((k) => {
+      const low = (playMods.shift[k] || 0) >= 0;                       // altura escrita → grave · oitava abaixo → agudo
+      const vn = notes.filter((n) => n.v === k);
+      vn.forEach((n, i) => {
+        for (let j = 0; j < vn.length; j++) {
+          const o = vn[j]; if (o === n) continue;
+          if (!(o.s <= n.s + 1e-9 && o.s + o.d > n.s + 1e-9)) continue;   // o soa quando n começa
+          const better = low ? o.m < n.m : o.m > n.m;
+          if (better || (o.m === n.m && j < i)) { skip.add(n); break; }
+        }
+      });
+    });
+    return skip;
+  }
 
   function audibleLevel(voices, key) {
     const anySolo = VOICE_ORDER.some((k) => voices[k] && voices[k].solo);
@@ -640,10 +660,17 @@
         const hiAbs = Math.min(target, base + L);
         const hi = hiAbs - base;
         const notes = this.host.getNotes();
+        let mono = null;
+        if (playMods.mono) {
+          const key = notes.length + '|' + VOICE_ORDER.map((k) => playMods.shift[k] || 0).join(',');
+          if (this._monoNotes !== notes || this._monoKey !== key) { this._monoNotes = notes; this._monoKey = key; this._mono = monoSkipSet(notes); }
+          mono = this._mono;
+        }
         for (let i = 0; i < notes.length; i++) {
           const n = notes[i];
           if (n.s >= lo - 1e-9 && n.s < hi - 1e-9) {
             if (this.host.isAudible && !this.host.isAudible(n)) continue;
+            if (mono && mono.has(n)) continue;
             const time = this.t0 + (base + n.s - this.p0) * sps;
             engine.noteOn({
               t: time, dur: n.d * sps, midi: n.m + (playMods.shift[n.v] || 0), voice: n.v,
