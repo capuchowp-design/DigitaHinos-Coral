@@ -2,11 +2,11 @@
 // O app inteiro é local (sem CDN): depois da primeira visita funciona 100% offline,
 // inclusive os 480 hinos (baixados em segundo plano) e as vozes de coro.
 // Mude a versão abaixo a CADA publicação nova para forçar a atualização do cache.
-const CACHE_NAME = 'dhcoral-v1';
+const CACHE_NAME = 'dhcoral-v2';
 
 const PRECACHE_URLS = [
   './', './index.html', './style.css', './config.js', './pwa.js', './audio.js', './io.js', './import.js', './pdf.js',
-  './demos.js', './app.js', './home.js', './manifest.json', './privacidade.html', './icon.svg', './hinos/index.json',
+  './demos.js', './app.js', './singers.js', './home.js', './manifest.json', './privacidade.html', './icon.svg', './hinos/index.json',
   './icon-72x72.png', './icon-96x96.png', './icon-128x128.png', './icon-144x144.png', './icon-152x152.png',
   './icon-192x192.png', './icon-384x384.png', './icon-512x512.png', './icon-maskable-192x192.png',
   './icon-maskable-512x512.png', './apple-touch-icon.png', './favicon-32x32.png',

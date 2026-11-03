@@ -307,6 +307,7 @@
     <button id="plZoomOut" class="icon-btn" aria-label="Reduzir partitura"><svg class="i"><use href="#i-zoomout"/></svg></button>
     <button id="plZoomIn" class="icon-btn" aria-label="Ampliar partitura"><svg class="i"><use href="#i-zoomin"/></svg></button>
   </header>
+  <div id="plChoir" class="pl-choir" aria-label="Cantores"></div>
   <div id="plScore" class="pl-score" tabindex="-1" aria-label="Partitura"><div class="pl-wait">Preparando a partitura…</div></div>
   <div class="pl-panel">
     <div class="seg" id="plVoices" role="radiogroup" aria-label="Voz que você quer ouvir">
@@ -319,6 +320,7 @@
     <div class="pl-opts">
       <label class="chk"><input type="checkbox" id="plGuide"><span>Ouvir as outras vozes baixinho</span></label>
       <label class="chk"><input type="checkbox" id="plBassDown"><span>Baixo uma oitava abaixo</span></label>
+      <label class="chk"><input type="checkbox" id="plSingers" checked><span>Mostrar os cantores</span></label>
     </div>
     <div class="pl-row">
       <div class="pl-ctl">
@@ -429,6 +431,7 @@
 <script src="pdf.js"></script>
 <script src="demos.js"></script>
 <script src="app.js"></script>
+<script src="singers.js"></script>
 <script src="home.js"></script>
 </body>
 </html>

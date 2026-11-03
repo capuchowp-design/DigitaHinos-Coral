@@ -148,6 +148,7 @@
 
   /* ───────────────────────── Player ───────────────────────── */
 
+  let singersBox = null;
   const PL = { score: null, layout: null, pages: 0, svg: null, unroll: [], total: 0, zoom: 1, bpm0: 60, raf: 0, lastY: -1, wasPlaying: false, sel: 'ALL', title: '' };
   const ZOOMS = [1, 1.35, 1.8, 2.4];
 
@@ -179,16 +180,23 @@
     $('#plScore').innerHTML = '<div class="pl-wait">Preparando a partitura…</div>';
     go('player');
     // a partitura é desenhada logo depois de mostrar a tela
-    setTimeout(() => {
-      try {
-        const r = CC.renderScore(score, { title: P.name });
-        PL.layout = r.layout; PL.pages = r.pages; PL.svg = r;
-        buildScoreView();
-        $('#plSub').textContent = playerSub();
-      } catch (e) { $('#plScore').innerHTML = '<div class="pl-wait">Não foi possível desenhar a partitura (' + esc(e.message) + '), mas o áudio funciona.</div>'; }
-    }, 30);
+    CC.singers.select('ALL'); CC.singers.reset();
+    setTimeout(() => drawScore(false), 30);
     updateSamplesStatus();
     startLoop();
+  }
+
+  /* desenha a partitura; com uma voz escolhida (S/A/T/B) mostra só essa voz */
+  function drawScore(keepScroll) {
+    const P = APP.getProject(), box = $('#plScore');
+    const top = keepScroll ? box.scrollTop : 0;
+    try {
+      const r = CC.renderScore(PL.score, { title: P.name, voice: PL.sel === 'ALL' ? null : PL.sel });
+      PL.layout = r.layout; PL.pages = r.pages; PL.svg = r;
+      buildScoreView();
+      box.scrollTop = top;
+      $('#plSub').textContent = playerSub();
+    } catch (e) { box.innerHTML = '<div class="pl-wait">Não foi possível desenhar a partitura (' + esc(e.message) + '), mas o áudio funciona.</div>'; }
   }
 
   function buildScoreView() {
@@ -216,7 +224,7 @@
     const m = PL.score.measures[U[lo].mi];
     return m.start + Math.min(q - U[lo].q0, m.len);
   }
-  function placeCursor(steps) {
+  function placeCursor(steps, force) {
     if (!PL.layout) return;
     const cols = PL.layout.cols; if (!cols.length) return;
     const w = stepsToWritten(steps);
@@ -235,7 +243,7 @@
     // acompanha o cursor com a rolagem
     const sc = $('#plScore'), pg = $$('#plScore .pl-page')[c.page - 1]; if (!pg) return;
     const top = pg.offsetTop + c.y1 / L.H * pg.offsetHeight, bottom = pg.offsetTop + c.y2 / L.H * pg.offsetHeight;
-    if (APP.transport.state === 'playing') {
+    if (APP.transport.state === 'playing' || force) {
       if (top < sc.scrollTop + 8 || bottom > sc.scrollTop + sc.clientHeight - 8) sc.scrollTo({ top: Math.max(0, top - 24), behavior: 'smooth' });
       const cx = pg.offsetLeft + x / L.W * pg.offsetWidth;
       if (cx < sc.scrollLeft + 30 || cx > sc.scrollLeft + sc.clientWidth - 30) sc.scrollLeft = Math.max(0, cx - sc.clientWidth * 0.3);
@@ -295,6 +303,8 @@
     $$('#plVoices button').forEach((x) => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)); });
     $('#plGuide').closest('.chk').classList.toggle('dim', PL.sel === 'ALL');
     applyVoices();
+    CC.singers.select(PL.sel);
+    if (PL.score) { drawScore(false); placeCursor(APP.transport.position(), true); }
     if (PL.sel !== 'ALL') {   // prévia curta da voz escolhida
       const P = APP.getProject(), n = P.notes.find((x) => x.v === PL.sel);
       if (n && APP.transport.state !== 'playing') { try { APP.preview({ v: n.v, m: n.m + (CC.playMods.shift[n.v] || 0) }); } catch (x) { /* ignore */ } }
@@ -303,6 +313,11 @@
   $('#plGuide').addEventListener('change', applyVoices);
   $('#plBassDown').addEventListener('change', () => { applyVoices(); toast($('#plBassDown').checked ? 'Baixo uma oitava abaixo' : 'Baixo na altura escrita'); });
   $('#plGuide').closest('.chk').classList.add('dim');
+
+  /* cantores animados */
+  CC.singers.mount($('#plChoir'));
+  $('#plSingers').checked = CC.singers.isOn();
+  $('#plSingers').addEventListener('change', (e) => CC.singers.setVisible(e.target.checked));
 
   /* PDF e compositor */
   $('#plPdf').addEventListener('click', async () => {
@@ -334,17 +349,19 @@
       if (current !== 'player') return;
       const playing = APP.transport.state === 'playing';
       placeCursor(APP.transport.position());
+      CC.singers.tick();
       if (playing !== PL.wasPlaying) { PL.wasPlaying = playing; syncPlayBtn(); }
       $('#plBpm').textContent = APP.getProject().bpm;
       PL.raf = requestAnimationFrame(frame);
     };
     PL.raf = requestAnimationFrame(frame);
   }
-  APP.onTransport((ev) => { if (ev === 'end' && current === 'player') { syncPlayBtn(); placeCursor(0); } });
+  APP.onTransport((ev) => { if (ev === 'end' && current === 'player') { syncPlayBtn(); placeCursor(0); CC.singers.reset(); } });
 
   function leavePlayerUi() {
     if (PL.raf) { cancelAnimationFrame(PL.raf); PL.raf = 0; }
     if (current !== 'player' && PL.score && APP.transport.state === 'playing') APP.transport.stop();
+    CC.singers.reset();
   }
 
   /* ───────────────────────── Início ───────────────────────── */

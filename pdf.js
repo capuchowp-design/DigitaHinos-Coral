@@ -154,7 +154,19 @@
     const doc = new Doc(W, H);
     const meas = score.measures, nM = meas.length;
     const fifths = score.fifths || 0, keyAl = keyAlterMap(fifths);
-    const ev = score.events;
+    const evAll = score.events;
+
+    /* ─ voz única: opts.voice = 'S' | 'A' | 'T' | 'B' → só essa voz, numa pauta só (letras mantidas) ─ */
+    const VC = { S: 0, A: 1, T: 2, B: 3 }, VNAME = { S: 'Soprano', A: 'Contralto', T: 'Tenor', B: 'Baixo' };
+    const only = opts.voice && VC[opts.voice] != null ? opts.voice : null;
+    const SK = only ? (VC[only] < 2 ? 't' : 'b') : null;     // pauta usada no modo de voz única
+    const LK = only ? SK : 't';                                // pauta que carrega as letras
+    const ev = only ? (() => {
+      const lyrAt = new Map();                                 // letras do hino (em geral escritas na voz de cima)
+      evAll.forEach((e) => { if (e.lyr) { const k = e.mi + '|' + e.on.toFixed(3); if (!lyrAt.has(k)) lyrAt.set(k, e.lyr); } });
+      const vc = SK === 't' ? 0 : 2;
+      return evAll.filter((e) => e.vc === VC[only]).map((e) => Object.assign({}, e, { vc, lyr: e.lyr || lyrAt.get(e.mi + '|' + e.on.toFixed(3)) || null }));
+    })() : evAll;
 
     /* ─ versos ─ */
     let nVerses = 0; ev.forEach((e) => { if (e.lyr) Object.keys(e.lyr).forEach((k) => { nVerses = Math.max(nVerses, parseInt(k) || 1); }); });
@@ -188,6 +200,7 @@
 
     /* ─ Desenha-se compasso a compasso; primeiro calcula-se o "plano" (colunas e larguras) ─ */
     function planStaff(kind, mi) {
+      if (only && kind !== SK) return [];
       const events = byM[mi][kind], mLen = meas[mi].len;
       const vcU = kind === 't' ? 0 : 2, vcL = kind === 't' ? 1 : 3;
       const U = lineObjs(events, mLen, vcU), L = lineObjs(events, mLen, vcL);
@@ -199,7 +212,7 @@
       U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (lk.has(k)) sharedKeys.add(k); });
       const mk = (o, line) => ({ on: o.on, dur: o.dur, notes: dedupe(o.ev), line, tm: o.tm });
       const objs = [];
-      U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (sharedKeys.has(k)) { const m = mk(o, 'S'); m.notes = dedupe(o.ev.concat(lk.get(k).ev)); objs.push(m); } else objs.push(mk(o, 'U')); });
+      U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (sharedKeys.has(k)) { const m = mk(o, 'S'); m.notes = dedupe(o.ev.concat(lk.get(k).ev)); objs.push(m); } else objs.push(mk(o, only ? 'S' : 'U')); });
       L.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (!sharedKeys.has(k)) objs.push(mk(o, 'L')); });
       objs.sort((a, b) => a.on - b.on || (a.line === 'U' ? -1 : 1));
       // decompõe cada objeto em figuras (com ligaduras quando necessário) e calcula posição na pauta
@@ -232,7 +245,7 @@
         });
       };
       if (!items.length) addRests([[0, mLen]], 'S', 'S');
-      else if (sameG(gU, gL)) addRests(gU, 'S', 'S');
+      else if (only || sameG(gU, gL)) addRests(gU, 'S', 'S');
       else { if (hasU || !hasL) addRests(gU, 'U', 'U'); if (hasL) addRests(gL, 'L', 'L'); }
       return items.concat(restItems).sort((a, b) => a.on - b.on || (a.rest ? 1 : -1));
     }
@@ -272,19 +285,19 @@
         }));
         // largura das letras
         let lw = 0;
-        staves.t.forEach((it) => { if (it.rest || Math.abs(it.on - on) > EPS || !it.first) return; const ly = it.notes.map((n) => n.lyr).find(Boolean); if (ly) Object.keys(ly).forEach((v) => { const w = textW(ly[v].t, LYR) + (ly[v].sy === 'begin' || ly[v].sy === 'middle' ? 5 : 2); lw = Math.max(lw, w); }); });
+        staves[LK].forEach((it) => { if (it.rest || Math.abs(it.on - on) > EPS || !it.first) return; const ly = it.notes.map((n) => n.lyr).find(Boolean); if (ly) Object.keys(ly).forEach((v) => { const w = textW(ly[v].t, LYR) + (ly[v].sy === 'begin' || ly[v].sy === 'middle' ? 5 : 2); lw = Math.max(lw, w); }); });
         return { on, dur: nxt - on, pre: accCols ? 8.5 + (accCols - 1) * 6.5 : 0, lw, x: 0 };
       });
       return { staves, cols, colIdx };
     });
 
     // lyric por nota: pega do evento da pauta de cima (primeira nota do acorde com letra)
-    plans.forEach((pl) => pl.staves.t.forEach((it) => { if (!it.rest) { const n = it.notes.find((x) => x.lyr); it.lyrData = n ? n.lyr : null; } }));
+    plans.forEach((pl) => pl.staves[LK].forEach((it) => { if (!it.rest) { const n = it.notes.find((x) => x.lyr); it.lyrData = n ? n.lyr : null; } }));
     // (compatibilidade com o cálculo de largura acima)
     plans.forEach((pl) => {
       pl.cols.forEach((c) => {
         let lw = 0;
-        pl.staves.t.forEach((it) => { if (it.rest || Math.abs(it.on - c.on) > EPS || !it.first || !it.lyrData) return; Object.keys(it.lyrData).forEach((v) => { const d = it.lyrData[v]; lw = Math.max(lw, textW(d.t, LYR) + (d.sy === 'begin' || d.sy === 'middle' ? 5 : 2)); }); });
+        pl.staves[LK].forEach((it) => { if (it.rest || Math.abs(it.on - c.on) > EPS || !it.first || !it.lyrData) return; Object.keys(it.lyrData).forEach((v) => { const d = it.lyrData[v]; lw = Math.max(lw, textW(d.t, LYR) + (d.sy === 'begin' || d.sy === 'middle' ? 5 : 2)); }); });
         c.lw = lw;
       });
     });
@@ -311,7 +324,7 @@
 
     /* ─ quebra em sistemas ─ */
     const gapMid = (nVerses ? 38 + nVerses * LYR_LH : 48);
-    const STAFF_H = 4 * SP, SYS_H = STAFF_H + gapMid + STAFF_H, SYS_ADV = SYS_H + 44;
+    const STAFF_H = 4 * SP, SYS_H = only ? STAFF_H + (nVerses ? 22 + (nVerses - 1) * LYR_LH : 0) : STAFF_H + gapMid + STAFF_H, SYS_ADV = SYS_H + (only ? 40 : 44);
     const nAcc = Math.abs(fifths);
     const prefixW = (first) => 24 + nAcc * 6.8 + (first ? 20 : 2) + 8;
     const systems = []; { let cur = [], w = 0, first = true;
@@ -329,13 +342,13 @@
     const headH = 66;
     let y0 = MT + headH, pageNo = 1;
     const mode = (() => { // maior ou menor, pela nota final do baixo
-      const bs = ev.filter((e) => e.vc === 3).sort((a, b) => a.s - b.s); if (!bs.length) return false;
+      const bs = evAll.filter((e) => e.vc === 3).sort((a, b) => a.s - b.s); if (!bs.length) return false;
       const lastPc = ((bs[bs.length - 1].midi % 12) + 12) % 12, F = [0, -5, 2, -3, 4, -1, 6, 1, -4, 3, -2, 5];
       const majPc = F.indexOf(fifths) >= 0 ? F.indexOf(fifths) : 0; return lastPc === (majPc + 9) % 12;
     })();
     doc.text(W / 2, MT + 14, title, 17, { font: 'b', anchor: 'm' });
     {
-      const sub = (opts.subtitle != null ? opts.subtitle : 'Tom: ' + keyName(fifths, mode) + '   ·   Compasso ' + (score.timeSig || '4/4') + '   ·   ');
+      const sub = (opts.subtitle != null ? opts.subtitle : (only ? 'Voz: ' + VNAME[only] + '   ·   ' : '') + 'Tom: ' + keyName(fifths, mode) + '   ·   Compasso ' + (score.timeSig || '4/4') + '   ·   ');
       const bpmTxt = '= ' + Math.round(score.bpm || 90);
       const w1 = textW(sub, 9), w2 = textW(bpmTxt, 9), total = w1 + 10 + w2, sx = W / 2 - total / 2;
       doc.text(sx, MT + 32, sub, 9, { color: '#444' });
@@ -401,7 +414,8 @@
     /* ─ desenho de um sistema ─ */
     function drawSystem(sys, sysIdx, yTop) {
       const first = sysIdx === 0;
-      const yT = yTop, yB = yTop + STAFF_H + gapMid;       // topo da pauta de sol / de fá
+      const yT = yTop, yB = only ? yTop : yTop + STAFF_H + gapMid;       // topo da pauta de sol / de fá (voz única: só uma pauta)
+      const staffYs = only ? [yT] : [yT, yB];
       const xL = ML, xR = W - MR;
       // geometria do início da música neste sistema (igual à usada mais abaixo)
       const startX0 = xL + 24 + 3 + (fifths ? nAcc * 6.8 + 2 : 0) + (first ? 20 : 0) + 6;
@@ -410,15 +424,15 @@
       if (isLast0 && f0 > 1.35) f0 = 1.0;
       const xEnd = isLast0 && f0 === 1.0 ? startX0 + sumW0 : xR;
       // linhas das pautas
-      [yT, yB].forEach((yy) => { for (let i = 0; i < 5; i++) doc.line(xL, yy + i * SP, xEnd, yy + i * SP, 0.55); });
+      staffYs.forEach((yy) => { for (let i = 0; i < 5; i++) doc.line(xL, yy + i * SP, xEnd, yy + i * SP, 0.55); });
       doc.line(xL, yT, xL, yB + STAFF_H, 0.9);
-      brace(xL - 9, yT, yB + STAFF_H);
-      trebleClef(xL + 11, yT); bassClef(xL + 11, yB);
+      if (!only) { brace(xL - 9, yT, yB + STAFF_H); trebleClef(xL + 11, yT); bassClef(xL + 11, yB); }
+      else if (SK === 't') trebleClef(xL + 11, yT); else bassClef(xL + 11, yT);
       let px = xL + 24;
       const drawKey = (xx) => {
         if (!fifths) return xx;
         for (let i = 0; i < nAcc; i++) {
-          [['t', yT], ['b', yB]].forEach(([k, yy]) => {
+          [['t', yT], ['b', yB]].filter(([k]) => !only || k === SK).forEach(([k, yy]) => {
             const pos = (fifths > 0 ? SHARP_POS[k][i] : FLAT_POS[k][i]), y = yy + 4 * SP - pos * SP / 2;
             if (fifths > 0) sharpAt(xx + i * 6.8, y); else flatAt(xx + i * 6.8, y);
           });
@@ -427,7 +441,7 @@
       };
       const drawTime = (xx, ts) => {
         const [n, d] = String(ts).split('/');
-        [yT, yB].forEach((yy) => { doc.text(xx, yy + 2 * SP - 0.6, n, 15.5, { font: 'b', anchor: 'm' }); doc.text(xx, yy + 4 * SP - 0.6, d, 15.5, { font: 'b', anchor: 'm' }); });
+        staffYs.forEach((yy) => { doc.text(xx, yy + 2 * SP - 0.6, n, 15.5, { font: 'b', anchor: 'm' }); doc.text(xx, yy + 4 * SP - 0.6, d, 15.5, { font: 'b', anchor: 'm' }); });
       };
       px = drawKey(px + 3);
       if (first) { drawTime(px + 7, score.timeSig || '4/4'); px += 20; }
@@ -450,14 +464,14 @@
         if (mi > 0 && m.time) { drawTime(mx + lead + 8, m.time); lead += 18; }
         const xm0 = mx;                       // início do compasso (barra à esquerda)
         // barra inicial do sistema ou repetição
-        if (m.fwd) { [yT, yB].forEach((yy) => { doc.rect(xm0 + 0.5, yy, 2.2, STAFF_H); doc.line(xm0 + 5.2, yy, xm0 + 5.2, yy + STAFF_H, 0.7); doc.ellipse(xm0 + 8.5, yy + 1.5 * SP, 0.9, 0.9, 0, { fill: true }); doc.ellipse(xm0 + 8.5, yy + 2.5 * SP, 0.9, 0.9, 0, { fill: true }); }); }
+        if (m.fwd) { staffYs.forEach((yy) => { doc.rect(xm0 + 0.5, yy, 2.2, STAFF_H); doc.line(xm0 + 5.2, yy, xm0 + 5.2, yy + STAFF_H, 0.7); doc.ellipse(xm0 + 8.5, yy + 1.5 * SP, 0.9, 0.9, 0, { fill: true }); doc.ellipse(xm0 + 8.5, yy + 2.5 * SP, 0.9, 0.9, 0, { fill: true }); }); }
         // posições
         const scaleX = (c) => xm0 + lead + (c.x - 9) * f + 9 - (m.fwd ? 0 : 0);
         const colX = pl.cols.map((c) => xm0 + lead + 2 + c.x * f - 2 * f + 0 * 0);
         pl.cols.forEach((c, ci) => { sysInfo.xs.push({ wq: m.start + c.on, x: colX[ci] }); layout.cols.push({ wq: m.start + c.on, page: pageNo, x: colX[ci], y1: yT - 10, y2: yB + STAFF_H + 6, mi }); });
         const xmEnd = xm0 + mw;
         // desenha cada pauta
-        ['t', 'b'].forEach((kind) => {
+        (only ? [SK] : ['t', 'b']).forEach((kind) => {
           const yTop = kind === 't' ? yT : yB, dB = D_BOTTOM[kind];
           const posY = (pos) => yTop + 4 * SP - pos * SP / 2;
           const items = pl.staves[kind];
@@ -595,7 +609,7 @@
             else restAt(rx, yTop, it.q, false, shift);
           });
           // ─ letras (somente na pauta de cima)
-          if (kind === 't') noteItems.forEach((it) => {
+          if (kind === LK) noteItems.forEach((it) => {
             if (!it.first || !it.lyrData) return;
             Object.keys(it.lyrData).forEach((v) => { const vi = (parseInt(v) || 1) - 1; if (vi < 0 || vi >= nVerses) return; const d = it.lyrData[v]; const w = textW(d.t, LYR); lyricsAcc[vi].push({ x: it.cx, w, t: d.t, sy: d.sy }); });
           });
@@ -603,7 +617,7 @@
         // barras de compasso
         const lastInSys = k === sys.length - 1;
         const lastOfPiece = mi === nM - 1;
-        [yT, yB].forEach((yy) => {
+        staffYs.forEach((yy) => {
           if (m.bwd) { doc.ellipse(xmEnd - 8.5, yy + 1.5 * SP, 0.9, 0.9, 0, { fill: true }); doc.ellipse(xmEnd - 8.5, yy + 2.5 * SP, 0.9, 0.9, 0, { fill: true }); doc.line(xmEnd - 5.2, yy, xmEnd - 5.2, yy + STAFF_H, 0.7); doc.rect(xmEnd - 2.7, yy, 2.2, STAFF_H); }
           else if (lastOfPiece) { doc.line(xmEnd - 4.2, yy, xmEnd - 4.2, yy + STAFF_H, 0.7); doc.rect(xmEnd - 2.2, yy, 2.2, STAFF_H); }
           else doc.line(xmEnd, yy, xmEnd, yy + STAFF_H, 0.7);

@@ -1136,7 +1136,7 @@
 
   CC.app = {
     loadProject, serialize, getProject: () => P, getLive, transport, togglePlay, stopPlay, setBpm, syncLevels, toast,
-    settings, scoreForPdf, preview,
+    settings, scoreForPdf, preview, peekLive: () => live,
     totalSteps, getScore: () => loadedScore,
     setLength(n) { lenOverride = n || 0; },
     /** Muda o andamento sem marcar o projeto como alterado (usado pelo player). */

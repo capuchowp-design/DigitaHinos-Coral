@@ -13,6 +13,8 @@ Aplicativo gratuito para **ouvir os 480 hinos em coro** (soprano, contralto, ten
 **Ao abrir um hino (ou um arquivo)**
 - Toca com as vozes de coro do compositor e mostra a partitura com um cursor acompanhando a música (toque num compasso para tocar a partir dali).
 - Escolha **qual voz ouvir**: Coro, Soprano, Contralto, Tenor ou Baixo. Cada voz toca na sua altura escrita; a opção "outras vozes baixinho" funciona como guia de ensaio.
+- **Partitura da voz escolhida**: ao tocar em Soprano, Contralto, Tenor ou Baixo, a partitura mostra só aquela voz (uma pauta, com as letras). "Coro" volta às quatro vozes.
+- **Cantores animados**: quatro cantores (um por voz) abrem a boca de acordo com o áudio de cada voz. A opção "Mostrar os cantores" liga/desliga (a escolha fica salva).
 - **Baixo uma oitava abaixo**: liga/desliga.
 - Andamento (BPM), repetição, volume.
 - **Baixar PDF**: partitura em duas pautas (S+A e T+B) com armadura, fórmula de compasso, repetições, casas 1ª/2ª e as letras das estrofes (para os hinos em MXL).
@@ -27,6 +29,7 @@ Aplicativo gratuito para **ouvir os 480 hinos em coro** (soprano, contralto, ten
 | `home.js` | início, biblioteca de hinos e player |
 | `import.js` | leitura de MXL/MusicXML/MIDI/JSON |
 | `pdf.js` | gerador de partitura (PDF e visualização) |
+| `singers.js` | cantores animados (boca controlada pelo volume de cada voz) |
 | `app.js`, `audio.js`, `io.js`, `demos.js` | compositor e motor de áudio (do Coral Crafter) |
 | `hinos/` | `index.json` + `001.mxl` … `480.mxl` |
 | `coral-voices.bin` | gravações de coro (soundfont FluidR3_GM, CC BY 3.0) |
