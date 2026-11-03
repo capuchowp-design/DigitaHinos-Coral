@@ -29,7 +29,7 @@ fs.rmSync(WWW, { recursive: true, force: true });
 fs.mkdirSync(WWW, { recursive: true });
 
 // ---- Arquivos copiados sem alteração (inclui as vozes de coro, que ficam dentro do app) ----
-const COPY = ['audio.js', 'demos.js', 'import.js', 'pdf.js', 'pwa.js', 'config.js', 'home.js', 'privacidade.html', 'icon.svg',
+const COPY = ['audio.js', 'demos.js', 'import.js', 'pdf.js', 'pwa.js', 'config.js', 'singers.js', 'home.js', 'privacidade.html', 'icon.svg',
   'coral-voices.bin', 'manifest.json', 'apple-touch-icon.png', 'favicon-32x32.png',
   'icon-72x72.png', 'icon-96x96.png', 'icon-128x128.png', 'icon-144x144.png', 'icon-152x152.png', 'icon-192x192.png',
   'icon-384x384.png', 'icon-512x512.png', 'icon-maskable-192x192.png', 'icon-maskable-512x512.png'];
