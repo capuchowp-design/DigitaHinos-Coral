@@ -163,7 +163,7 @@
     tracks.push(chunk('MTrk', t0));
 
     VOICE_ORDER.forEach((vk, idx) => {
-      if (CC.audibleLevel(project.voices, vk) <= 0) return;
+      if (CC.audibleLevel(project.voices, vk, range.scale) <= 0) return;
       const notes = project.notes.filter((n) => n.v === vk && n.s >= from && n.s < to);
       if (!notes.length) return;
       const vs = project.voices[vk];

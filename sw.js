@@ -2,7 +2,7 @@
 // O app inteiro é local (sem CDN): depois da primeira visita funciona 100% offline,
 // inclusive os 480 hinos (baixados em segundo plano) e as vozes de coro.
 // Mude a versão abaixo a CADA publicação nova para forçar a atualização do cache.
-const CACHE_NAME = 'dhcoral-v2';
+const CACHE_NAME = 'dhcoral-v3';
 
 const PRECACHE_URLS = [
   './', './index.html', './style.css', './config.js', './pwa.js', './audio.js', './io.js', './import.js', './pdf.js',

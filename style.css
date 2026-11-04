@@ -437,7 +437,8 @@ kbd { background: var(--panel3); border: 1px solid #38405d; border-bottom-width:
 .pl-vol { width: 120px; }
 .pl-vol input { width: 100%; }
 .pl-status { margin: 0; min-height: 14px; color: var(--muted); font-size: 11.5px; }
-.pl-actions { display: flex; gap: 8px; }
+.pl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pl-ens { margin-top: 6px; }
 .pl-actions .btn { flex: 1; height: 42px; }
 .pix-key { display: flex; gap: 8px; align-items: center; margin: 4px 0 8px; }
 .pix-key code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 10px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }

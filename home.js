@@ -181,6 +181,7 @@
     go('player');
     // a partitura é desenhada logo depois de mostrar a tela
     CC.singers.select('ALL'); CC.singers.reset();
+    syncEnsembleUi();
     setTimeout(() => drawScore(false), 30);
     updateSamplesStatus();
     startLoop();
@@ -331,6 +332,102 @@
   CC.singers.mount($('#plChoir'));
   $('#plSingers').checked = CC.singers.isOn();
   $('#plSingers').addEventListener('change', (e) => CC.singers.setVisible(e.target.checked));
+
+
+  /* ───────────────────────── Quantos cantores (um / vários) ───────────────────────── */
+
+  function syncEnsembleUi() {
+    const e = APP.settings.ensemble === 'many' ? 'many' : 'solo';
+    $$('#plEnsemble button').forEach((b) => { const on = b.dataset.e === e; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+  }
+  $('#plEnsemble').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    APP.settings.ensemble = b.dataset.e === 'many' ? 'many' : 'solo';
+    APP.saveSettings();
+    const l = APP.peekLive(); if (l) l.engine.setEnsemble(APP.settings.ensemble);
+    syncEnsembleUi();
+    toast(APP.settings.ensemble === 'many' ? 'Vários cantores em cada voz' : 'Um cantor em cada voz');
+    if (APP.transport.state !== 'playing') {   // prévia curta para ouvir a diferença
+      const P = APP.getProject();
+      const keys = PL.sel === 'ALL' ? VOICE_ORDER : [PL.sel];
+      const pv = keys.map((k) => P.notes.find((n) => n.v === k)).filter(Boolean).map((n) => ({ v: n.v, m: n.m + (CC.playMods.shift[n.v] || 0) }));
+      if (pv.length) { ensureVoices().then(() => { try { APP.preview(pv); } catch (x) { /* ignore */ } }); }
+    }
+  });
+
+  /* ───────────────────────── Baixar áudio (WAV / MIDI) por voz ───────────────────────── */
+
+  const radioVal = (name) => { const r = $('input[name="' + name + '"]:checked'); return r ? r.value : null; };
+  const setRadio = (name, val) => $$('input[name="' + name + '"]').forEach((r) => { r.checked = r.value === String(val); });
+
+  function syncAudioDlg() {
+    const all = radioVal('dlV') === 'ALL', wav = radioVal('dlF') === 'wav';
+    $$('input[name="dlP"]').forEach((r) => { r.disabled = all; });
+    $('#dlPitchHint').textContent = all ? 'No coro completo valem as opções de oitava marcadas no player (baixo; soprano e contralto).' : '';
+    $$('input[name="dlE"], #dlEcho').forEach((r) => { r.disabled = !wav; });
+  }
+  $$('#dlgAudio input[type=radio]').forEach((r) => r.addEventListener('change', syncAudioDlg));
+
+  $('#plAudio').addEventListener('click', () => {
+    const sel = PL.sel;
+    setRadio('dlV', sel);
+    let p = 0;
+    if (sel === 'B' && $('#plBassDown').checked) p = -12;
+    if ((sel === 'S' || sel === 'A') && $('#plSADown').checked) p = -12;
+    setRadio('dlP', p);
+    setRadio('dlF', 'wav');
+    setRadio('dlE', APP.settings.ensemble === 'many' ? 'many' : 'solo');
+    $('#dlEcho').checked = (APP.settings.reverb || 0) > 0.02;
+    syncAudioDlg();
+    $('#dlgAudio').showModal();
+  });
+
+  $('#btnDoAudio').addEventListener('click', async () => {
+    const btn = $('#btnDoAudio'), label = btn.innerHTML;
+    btn.disabled = true;
+    try {
+      const P = APP.getProject();
+      const v = radioVal('dlV'), fmt = radioVal('dlF');
+      const shift = { S: 0, A: 0, T: 0, B: 0 };
+      if (v === 'ALL') {
+        shift.B = $('#plBassDown').checked ? -12 : 0;
+        shift.S = shift.A = $('#plSADown').checked ? -12 : 0;
+      } else shift[v] = parseInt(radioVal('dlP'), 10) || 0;
+      // só a(s) voz(es) escolhida(s), com o volume cheio (sem o "ouvir baixinho" do player)
+      const voices = {};
+      VOICE_ORDER.forEach((k) => { voices[k] = Object.assign({}, P.voices[k], { mute: v !== 'ALL' && k !== v, solo: false }); });
+      const scale = { S: 1, A: 1, T: 1, B: 1 };
+      const to = Math.max(4, Math.ceil(PL.total * 4 - 1e-9));
+      if (!P.notes.some((n) => (v === 'ALL' || n.v === v) && n.s < to)) throw new Error('Esta voz não tem notas neste hino.');
+      const vname = v === 'ALL' ? 'coro' : CC.VOICES[v].name.toLowerCase();
+      const down = v === 'ALL' ? (shift.B || shift.S ? '_com-oitava-abaixo' : '') : (shift[v] < 0 ? '_oitava-abaixo' : '');
+      const base = CC.slug(P.name) + '_' + vname + down;
+
+      if (fmt === 'wav') {
+        btn.textContent = 'Preparando o áudio…';
+        await new Promise((r) => setTimeout(r, 30));
+        const ens = radioVal('dlE') === 'many' ? 'many' : 'solo';
+        const rv = $('#dlEcho').checked ? (APP.settings.reverb > 0.02 ? APP.settings.reverb : 0.35) : 0;
+        const buf = await CC.renderToBuffer({
+          notes: P.notes, voices, bpm: P.bpm, from: 0, to, master: 1, reverb: rv,
+          timbre: APP.settings.timbre, ensemble: ens, scale, shift, mono: true,
+        });
+        await CC.download(CC.encodeWav(buf), base + '.wav');
+      } else {
+        const skip = CC.monoSkipSet(P.notes, shift);
+        const proj = APP.serialize();
+        proj.voices = voices;
+        proj.notes = P.notes.filter((n) => !skip.has(n)).map((n) => {
+          const o = { v: n.v, m: Math.max(0, n.m + (shift[n.v] || 0)), s: n.s, d: n.d };
+          if (n.o) o.o = n.o; return o;
+        });
+        await CC.download(CC.toMidi(proj, { from: 0, to, scale }), base + '.mid');
+      }
+      toast('Arquivo baixado: ' + base + (fmt === 'wav' ? '.wav' : '.mid'));
+      $('#dlgAudio').close();
+    } catch (e) { toast('Não foi possível baixar: ' + e.message, true); }
+    finally { btn.disabled = false; btn.innerHTML = label; }
+  });
 
   /* PDF e compositor */
   $('#plPdf').addEventListener('click', async () => {

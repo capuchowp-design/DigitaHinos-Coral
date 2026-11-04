@@ -28,12 +28,13 @@
 
   const defaults = {
     zoom: COARSE ? 26 : 20, notation: 'do', master: 0.8, reverb: 0.35,
-    loop: true, follow: true, snap: 2, dur: 4, voice: 'S', chord: 'maj', timbre: 'coral',
+    loop: true, follow: true, snap: 2, dur: 4, voice: 'S', chord: 'maj', timbre: 'coral', ensemble: 'solo',
   };
   const settings = Object.assign({}, defaults, CC.LS.get(CC.KEY_SETTINGS, {}));
   settings.zoom = ZOOMS.indexOf(settings.zoom) >= 0 ? settings.zoom : defaults.zoom;
   if (!VOICES[settings.voice]) settings.voice = 'S';
   if (!CHORDS[settings.chord]) settings.chord = 'maj';
+  if (settings.ensemble !== 'many') settings.ensemble = 'solo';
   const saveSettings = () => CC.LS.set(CC.KEY_SETTINGS, settings);
 
   let P = CC.defaultProject();
@@ -59,7 +60,7 @@
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) throw new Error('Este navegador não suporta Web Audio API.');
       const ctx = new AC({ latencyHint: 'interactive' });
-      const engine = new CC.Engine(ctx, { master: settings.master, reverb: settings.reverb, timbre: settings.timbre });
+      const engine = new CC.Engine(ctx, { master: settings.master, reverb: settings.reverb, timbre: settings.timbre, ensemble: settings.ensemble });
       CC.applyVoiceLevels(engine, P.voices);
       live = { ctx, engine };
     }
@@ -779,6 +780,7 @@
     $('#selNotation').value = settings.notation;
     $('#rngReverb').value = settings.reverb;
     $('#selTimbre').value = settings.timbre;
+    $('#selEnsemble').value = settings.ensemble;
     $('#rngMaster').value = settings.master;
     $('#selChord').value = settings.chord;
     $$('#durGroup .dur').forEach((b) => b.classList.toggle('on', +b.dataset.d === settings.dur));
@@ -890,7 +892,7 @@
         await new Promise((r) => setTimeout(r, 30));
         const buf = await CC.renderToBuffer({
           notes: P.notes, voices: P.voices, bpm: P.bpm, from: range.from, to: range.to,
-          master: 1, reverb: settings.reverb, timbre: settings.timbre,
+          master: 1, reverb: settings.reverb, timbre: settings.timbre, ensemble: settings.ensemble,
         });
         CC.download(CC.encodeWav(buf), base + '.wav');
       }
@@ -945,6 +947,11 @@
       if (live) live.engine.setTimbre(settings.timbre);
       if (settings.timbre === 'coral') CC.Samples.load();
       updateTimbreStatus();
+      preview({ m: 64, v: settings.voice });
+    });
+    $('#selEnsemble').addEventListener('change', (e) => {
+      settings.ensemble = e.target.value === 'many' ? 'many' : 'solo'; saveSettings();
+      if (live) live.engine.setEnsemble(settings.ensemble);
       preview({ m: 64, v: settings.voice });
     });
     $('#rngReverb').addEventListener('input', (e) => {
@@ -1136,7 +1143,7 @@
 
   CC.app = {
     loadProject, serialize, getProject: () => P, getLive, transport, togglePlay, stopPlay, setBpm, syncLevels, toast,
-    settings, scoreForPdf, preview, peekLive: () => live,
+    settings, saveSettings, scoreForPdf, preview, peekLive: () => live,
     totalSteps, getScore: () => loadedScore,
     setLength(n) { lenOverride = n || 0; },
     /** Muda o andamento sem marcar o projeto como alterado (usado pelo player). */
@@ -1152,6 +1159,7 @@
     /** Mostra o compositor: reposiciona a grade e zera os ajustes do player. */
     enterEditor() {
       transport.stop(); lenOverride = 0; loopOverride = null; CC.resetPlayMods(); syncLevels();
+      $('#selEnsemble').value = settings.ensemble;
       applyLayout(); renderNotes(); updatePlayButton(); updatePlayhead(0); scrollToMidi(avgPitch());
     },
     openDraft() {

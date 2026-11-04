@@ -268,6 +268,7 @@
       this.rand = mulberry32(opts.seed || 20261003);
       this.active = new Set();
       this.timbre = opts.timbre || 'coral'; // 'coral' (amostras) | 'synth' (formantes)
+      this.ensemble = opts.ensemble === 'many' ? 'many' : 'solo'; // 'solo' (um cantor por voz) | 'many' (vários cantores por voz)
 
       this.master = ctx.createGain();
       this.master.gain.value = opts.master == null ? 0.8 : opts.master;
@@ -339,6 +340,9 @@
 
     setTimbre(t) { this.timbre = t === 'synth' ? 'synth' : 'coral'; }
 
+    /** 'solo' = um cantor por voz · 'many' = vários cantores por voz (efeito de coro). Vale para as próximas notas. */
+    setEnsemble(e) { this.ensemble = e === 'many' ? 'many' : 'solo'; }
+
     /** Agenda uma nota vocal. t em segundos do relógio do contexto. */
     noteOn(o) {
       if (this.timbre === 'coral') {
@@ -377,20 +381,52 @@
       const peak = vel * smp.gain * 0.85 * (SAMPLE_TRIM[o.voice] || 1);
       const env = applyEnvelope(out.gain, t, dur, peak, ctx.currentTime);
 
-      // Camada única: a própria gravação já é um coro. Duas cópias desafinadas da mesma
-      // amostra "batem" entre si (efeito de tremolo), o que soava picotado.
+      // Um cantor: camada única (a própria gravação já é um coro; duas cópias quase iguais da mesma
+      // amostra "batem" entre si e soam picotadas).
+      // Vários cantores: 5 camadas da mesma amostra, cada uma com afinação própria (alguns centésimos
+      // de semitom), início de nota levemente atrasado, ponto de partida diferente na gravação,
+      // vibrato lento próprio e posição própria no palco. Assim as camadas não se somam em fase
+      // (sem efeito de tremolo) e o resultado lembra um naipe de pessoas diferentes cantando.
       // A nota começa no meio da amostra (pulando o ataque gravado), então ela nasce
       // pelo envelope e não por um novo "ataque" a cada troca.
-      const src = ctx.createBufferSource();
-      src.buffer = smp.buffer;
-      src.loop = true; src.loopStart = smp.loopStart; src.loopEnd = smp.loopEnd;
+      const many = this.ensemble === 'many';
+      const LAYERS = many ? 5 : 1;
+      const SPREAD = [-17, -8, 0, 9, 18];
+      const layerGain = many ? 1.18 / Math.sqrt(LAYERS) : 1;   // camadas incoerentes somam em potência
       // notas fora do alcance gravado (Dó1–Dó6) usam a amostra da ponta, afinada por detune
       const cm = Math.min(SAMPLE_MAX, Math.max(SAMPLE_MIN, o.midi));
-      src.detune.value = (rnd() - 0.5) * 4 + (o.midi - cm) * 100;
-      src.connect(head);
-      src.start(env.start, 0.25 + rnd() * 0.5);
-      src.stop(env.stopAt);
-      nodes.push(src);
+      for (let k = 0; k < LAYERS; k++) {
+        const src = ctx.createBufferSource();
+        src.buffer = smp.buffer;
+        src.loop = true; src.loopStart = smp.loopStart; src.loopEnd = smp.loopEnd;
+        const fine = many ? SPREAD[k] + (rnd() - 0.5) * 7 : (rnd() - 0.5) * 4;
+        src.detune.value = fine + (o.midi - cm) * 100;
+        let lastNode = src;
+        if (many) {
+          // vibrato lento, diferente em cada cantor
+          const lfo = ctx.createOscillator();
+          lfo.frequency.value = 4.4 + rnd() * 1.9;
+          const lg = ctx.createGain();
+          lg.gain.value = 3 + rnd() * 5;
+          lfo.connect(lg); lg.connect(src.detune);
+          lfo.start(env.start); lfo.stop(env.stopAt);
+          nodes.push(lfo);
+          const g = ctx.createGain();
+          g.gain.value = layerGain * (0.85 + rnd() * 0.3);
+          src.connect(g); lastNode = g;
+          if (ctx.createStereoPanner) {
+            const pn = ctx.createStereoPanner();
+            pn.pan.value = (rnd() * 2 - 1) * 0.55;
+            g.connect(pn); lastNode = pn;
+          }
+        }
+        lastNode.connect(head);
+        const delay = many ? rnd() * 0.045 : 0;
+        const offset = many ? 0.15 + rnd() * 0.7 : 0.25 + rnd() * 0.5;
+        src.start(env.start + delay, offset);
+        src.stop(env.stopAt);
+        nodes.unshift(src);   // a fonte fica sempre no começo da lista (usada em onended)
+      }
       out.connect(this.voiceBus[o.voice] || this.voiceBus.S);
 
       const h = { out, nodes, end: env.stopAt };
@@ -426,16 +462,17 @@
       lfo.connect(lfoGain);
       nodes.push(lfo);
 
-      // Três osciladores levemente desafinados = efeito de coro (ensemble)
+      // Três osciladores levemente desafinados = efeito de coro (ensemble); com "vários cantores", cinco, mais abertos
       const drift = (rnd() - 0.5) * 8;
-      [-11, 0, 11].forEach((c) => {
+      const detunes = this.ensemble === 'many' ? [-24, -12, 0, 12, 24] : [-11, 0, 11];
+      detunes.forEach((c) => {
         const osc = ctx.createOscillator();
         osc.setPeriodicWave(this.wave);
         osc.frequency.value = f0;
         osc.detune.value = c + drift;
         lfoGain.connect(osc.detune);
         const g = ctx.createGain();
-        g.gain.value = 1 / 3;
+        g.gain.value = 1 / detunes.length;
         osc.connect(g);
         g.connect(pre);
         nodes.push(osc);
@@ -511,10 +548,11 @@
   /* Um cantor só canta uma nota por vez. Quando uma voz tem duas ou mais notas soando juntas (divisi),
    * fica apenas uma: a MAIS GRAVE na altura escrita, ou a MAIS AGUDA quando a voz toca uma oitava abaixo.
    * Devolve o conjunto de notas que NÃO devem tocar. */
-  function monoSkipSet(notes) {
+  function monoSkipSet(notes, shiftMap) {
+    const shiftOf = shiftMap || playMods.shift;
     const skip = new Set();
     VOICE_ORDER.forEach((k) => {
-      const low = (playMods.shift[k] || 0) >= 0;                       // altura escrita → grave · oitava abaixo → agudo
+      const low = (shiftOf[k] || 0) >= 0;                       // altura escrita → grave · oitava abaixo → agudo
       const vn = notes.filter((n) => n.v === k);
       vn.forEach((n, i) => {
         for (let j = 0; j < vn.length; j++) {
@@ -528,17 +566,18 @@
     return skip;
   }
 
-  function audibleLevel(voices, key) {
+  function audibleLevel(voices, key, scaleMap) {
     const anySolo = VOICE_ORDER.some((k) => voices[k] && voices[k].solo);
     const v = voices[key];
     if (!v) return 0;
     if (v.mute) return 0;
     if (anySolo && !v.solo) return 0;
-    return v.vol * (playMods.scale[key] == null ? 1 : playMods.scale[key]);
+    const sc = scaleMap || playMods.scale;
+    return v.vol * (sc[key] == null ? 1 : sc[key]);
   }
 
-  function applyVoiceLevels(engine, voices) {
-    VOICE_ORDER.forEach((k) => engine.setVoiceLevel(k, audibleLevel(voices, k)));
+  function applyVoiceLevels(engine, voices, scaleMap) {
+    VOICE_ORDER.forEach((k) => engine.setVoiceLevel(k, audibleLevel(voices, k, scaleMap)));
   }
 
   /* ───────────────────────── Transporte (Play/Pause/Stop) ─────────────────────────
@@ -700,14 +739,18 @@
     const OAC = global.OfflineAudioContext || global.webkitOfflineAudioContext;
     const ctx = new OAC(2, Math.ceil(seconds * SAMPLE_RATE), SAMPLE_RATE);
     if (spec.timbre !== 'synth') await Samples.load();
-    const engine = new Engine(ctx, { master: 1, reverb: spec.reverb, timbre: spec.timbre });
-    applyVoiceLevels(engine, spec.voices);
+    const engine = new Engine(ctx, { master: 1, reverb: spec.reverb, timbre: spec.timbre, ensemble: spec.ensemble });
+    applyVoiceLevels(engine, spec.voices, spec.scale);
+    // spec.shift = transposição por voz em semitons (ex.: B: -12); spec.mono = uma nota por vez em cada voz
+    const shift = spec.shift || {};
+    const skip = spec.mono ? monoSkipSet(spec.notes, shift) : null;
     spec.notes.forEach((n) => {
       if (n.s < from || n.s >= to) return;
-      if (audibleLevel(spec.voices, n.v) <= 0) return;
+      if (audibleLevel(spec.voices, n.v, spec.scale) <= 0) return;
+      if (skip && skip.has(n)) return;
       const d = Math.min(n.d, to - n.s);
       engine.noteOn({
-        t: (n.s - from) * sps, dur: d * sps, midi: n.m, voice: n.v,
+        t: (n.s - from) * sps, dur: d * sps, midi: n.m + (shift[n.v] || 0), voice: n.v,
         vowel: n.o || spec.voices[n.v].vowel, vel: 0.9,
       });
     });
@@ -753,7 +796,7 @@
   }
 
   Object.assign(CC, {
-    VOICE_ORDER, VOICES, VOWELS, FORMANTS, mtof, Samples, playMods, resetPlayMods,
+    VOICE_ORDER, VOICES, VOWELS, FORMANTS, mtof, Samples, playMods, resetPlayMods, monoSkipSet,
     Engine, Transport, audibleLevel, applyVoiceLevels, renderToBuffer, encodeWav,
   });
 })(typeof window !== 'undefined' ? window : globalThis);

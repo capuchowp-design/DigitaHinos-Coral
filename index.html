@@ -142,6 +142,12 @@
             <option value="synth">Sintético</option>
           </select>
         </label>
+        <label class="row-field"><span>Quantos cantores</span>
+          <select id="selEnsemble" aria-label="Quantos cantores por voz">
+            <option value="solo">Um cantor por voz</option>
+            <option value="many">Vários cantores por voz</option>
+          </select>
+        </label>
         <p class="hint" id="timbreStatus" style="margin:0 0 6px"></p>
         <label class="row-field"><span>Reverberação</span>
           <input id="rngReverb" type="range" min="0" max="1" step="0.01" aria-label="Reverberação">
@@ -317,6 +323,10 @@
       <button type="button" data-v="T" role="radio" aria-checked="false" style="--vc:#45d6a8">Tenor</button>
       <button type="button" data-v="B" role="radio" aria-checked="false" style="--vc:#6ea8ff">Baixo</button>
     </div>
+    <div class="seg pl-ens" id="plEnsemble" role="radiogroup" aria-label="Quantos cantores por voz">
+      <button type="button" data-e="solo" role="radio" aria-checked="true" class="on">Um cantor</button>
+      <button type="button" data-e="many" role="radio" aria-checked="false">Vários cantores</button>
+    </div>
     <div class="pl-opts">
       <label class="chk"><input type="checkbox" id="plGuide"><span>Ouvir as outras vozes baixinho</span></label>
       <label class="chk"><input type="checkbox" id="plBassDown"><span>Baixo uma oitava abaixo</span></label>
@@ -339,10 +349,46 @@
     <p class="pl-status" id="plStatus"></p>
     <div class="pl-actions">
       <button id="plPdf" class="btn primary" type="button"><svg class="i"><use href="#i-download"/></svg> Baixar PDF</button>
+      <button id="plAudio" class="btn primary" type="button"><svg class="i"><use href="#i-download"/></svg> Baixar áudio</button>
       <button id="plEdit" class="btn ghost" type="button"><svg class="i"><use href="#i-pencil"/></svg> Editar arranjo</button>
     </div>
   </div>
 </section>
+
+<dialog id="dlgAudio" class="dlg">
+  <form method="dialog" class="dlg-head"><h2>Baixar áudio do hino</h2><button class="icon-btn" aria-label="Fechar"><svg class="i"><use href="#i-x"/></svg></button></form>
+  <div class="dlg-body">
+    <fieldset class="range-box">
+      <legend>Qual voz</legend>
+      <label class="inline"><input type="radio" name="dlV" value="ALL" checked> Coro completo (S, A, T, B juntos)</label>
+      <label class="inline"><input type="radio" name="dlV" value="S"> Soprano</label>
+      <label class="inline"><input type="radio" name="dlV" value="A"> Contralto</label>
+      <label class="inline"><input type="radio" name="dlV" value="T"> Tenor</label>
+      <label class="inline"><input type="radio" name="dlV" value="B"> Baixo</label>
+    </fieldset>
+    <fieldset class="range-box" id="dlPitchBox">
+      <legend>Altura</legend>
+      <label class="inline"><input type="radio" name="dlP" value="0" checked> Na altura de escrita</label>
+      <label class="inline"><input type="radio" name="dlP" value="-12"> Uma oitava abaixo</label>
+      <p class="hint" id="dlPitchHint" style="margin:4px 0 0"></p>
+    </fieldset>
+    <fieldset class="range-box">
+      <legend>Formato</legend>
+      <label class="inline"><input type="radio" name="dlF" value="wav" checked> WAV (áudio)</label>
+      <label class="inline"><input type="radio" name="dlF" value="mid"> MIDI</label>
+    </fieldset>
+    <fieldset class="range-box" id="dlWavBox">
+      <legend>Som</legend>
+      <label class="inline"><input type="radio" name="dlE" value="solo"> Um cantor por voz</label>
+      <label class="inline"><input type="radio" name="dlE" value="many"> Vários cantores por voz</label>
+      <label class="inline"><input type="checkbox" id="dlEcho"> Incluir o eco (reverberação)</label>
+    </fieldset>
+    <p class="hint">Usa o andamento (BPM) que está no player agora. No WAV, o baixo e os demais seguem exatamente a mesma afinação que você ouve.</p>
+    <div class="dlg-actions">
+      <button id="btnDoAudio" class="btn primary" type="button"><svg class="i"><use href="#i-download"/></svg> Baixar</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="dlgPix" class="dlg">
   <form method="dialog" class="dlg-head"><h2>Contribuir via Pix</h2><button class="icon-btn" aria-label="Fechar"><svg class="i"><use href="#i-x"/></svg></button></form>

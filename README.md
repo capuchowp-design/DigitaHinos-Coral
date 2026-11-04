@@ -22,6 +22,15 @@ Aplicativo gratuito para **ouvir os 480 hinos em coro** (soprano, contralto, ten
 - **Baixar PDF**: partitura em duas pautas (S+A e T+B) com armadura, fórmula de compasso, repetições, casas 1ª/2ª e as letras das estrofes (para os hinos em MXL).
 - **Editar arranjo**: abre o hino no compositor.
 
+
+**Baixar o áudio de um hino** (botão *Baixar áudio* no player)
+- Escolha **Coro completo, Soprano, Contralto, Tenor ou Baixo**, em **WAV** ou **MIDI**.
+- Cada voz pode ser baixada **na altura de escrita** ou **uma oitava abaixo**; no coro completo valem as opções de oitava marcadas no player.
+- O WAV pode ser gerado com **um cantor** ou **vários cantores** por voz, com ou sem o eco (reverberação), no andamento (BPM) que está no player.
+
+**Quantos cantores** (player e compositor)
+- *Um cantor por voz* (som original) ou *Vários cantores por voz* (cada voz vira um pequeno naipe, com afinações, entradas e vibratos levemente diferentes).
+
 ## Arquivos
 
 | Arquivo | Função |
