@@ -15,6 +15,8 @@ Aplicativo gratuito para **ouvir os 480 hinos em coro** (soprano, contralto, ten
 - Escolha **qual voz ouvir**: Coro, Soprano, Contralto, Tenor ou Baixo. Cada voz toca na sua altura escrita; a opção "outras vozes baixinho" funciona como guia de ensaio.
 - **Partitura da voz escolhida**: ao tocar em Soprano, Contralto, Tenor ou Baixo, a partitura mostra só aquela voz (uma pauta, com as letras). "Coro" volta às quatro vozes.
 - **Cantores animados**: quatro cantores (um por voz) abrem a boca de acordo com o áudio de cada voz. A opção "Mostrar os cantores" liga/desliga (a escolha fica salva).
+- **Modo leve**: menos processamento de som (reverb mais curto, menos camadas em "Vários cantores") e de tela (animação a 30 quadros, sem brilho no modo noturno). Vem ligado por padrão no Android; a escolha fica salva. As vozes de coro são carregadas só para as vogais que o hino usa (menos memória).
+- **Partitura**: modo claro terroso e modo noturno (botão lua/sol no topo); no coro cada voz tem a sua pauta.
 - **Baixo uma oitava abaixo**: liga/desliga.
 - **Uma nota por cantor**: quando uma voz tem duas notas juntas (divisi), toca só uma: a mais grave na altura escrita, ou a mais aguda quando a voz está uma oitava abaixo.
 - **Soprano e contralto 8ª abaixo**: liga/desliga (para vozes masculinas); desligado, tocam na altura escrita.

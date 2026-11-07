@@ -160,35 +160,29 @@
     return { buffer: out, loopStart: A / sr, loopEnd: E / sr, gain: Math.min(SAMPLE_TARGET_RMS / rms, 12) };
   }
 
+  /* Cada instrumento (ah = vogais A/E · oh = vogais I/O/U) ocupa ~64 MB de RAM depois de decodificado.
+   * Por isso só se decodifica o que o hino realmente usa (quase sempre só o "ah"): bem menos memória no celular. */
   const Samples = {
     banks: { ah: {}, oh: {} },
     state: 'idle',      // idle | loading | ready | error
     progress: 0,
     listeners: [],
-    _promise: null,
+    _inst: {},          // instrumento → promessa do carregamento
+    _ok: {},            // instrumento → carregado com sucesso?
+    _prog: {},
+    _busy: 0,
+    _packP: null,
     on(fn) { this.listeners.push(fn); },
     _emit() { this.listeners.forEach((f) => { try { f(this.state, this.progress); } catch (e) { /* ignore */ } }); },
+    instFor(vowel) { return VOWEL_INSTR[vowel] || 'ah'; },
     get(inst, midi) {
       const m = Math.min(SAMPLE_MAX, Math.max(SAMPLE_MIN, midi));
       return this.banks[inst][m] || null;
     },
-    /** Carrega e prepara todas as amostras (uma vez). */
-    load() {
-      if (this._promise) return this._promise;
-      this.state = 'loading'; this.progress = 0; this._emit();
-      const OAC = global.OfflineAudioContext || global.webkitOfflineAudioContext;
-      const dctx = new OAC(1, 1, 44100);
-      let done = 0, failed = 0, total = 1;
-      const run = async (inst, m, bytes) => {
-        try {
-          const decoded = await dctx.decodeAudioData(bytes);
-          this.banks[inst][m] = prepareSample(decoded);
-        } catch (e) { failed++; }
-        done++; this.progress = done / total;
-        if (done % 8 === 0) this._emit();
-      };
-      this._promise = (async () => {
-        let jobs = [];
+    /** Lê o pacote (uma vez) e separa os arquivos de cada amostra. */
+    _pack() {
+      if (this._packP) return this._packP;
+      this._packP = (async () => {
         try {
           const res = await fetch(SAMPLE_PACK);
           if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -198,19 +192,50 @@
           const hl = dv.getUint32(4, true);
           const index = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 8, hl)));
           const base = 8 + hl;
-          jobs = index.map((e) => [e.i, e.m, ab.slice(base + e.o, base + e.o + e.l)]);
-        } catch (e) { jobs = []; }
-        total = Math.max(1, jobs.length);
-        let idx = 0;
-        const workers = Array.from({ length: 4 }, async () => { while (idx < jobs.length) await run(...jobs[idx++]); });
-        await Promise.all(workers);
-        this.state = jobs.length && failed <= jobs.length * 0.3 ? 'ready' : 'error';
-        if (this.state === 'error') this._promise = null; // permite tentar de novo
-        this._emit();
-        return this.state;
+          return { ab, index, base };
+        } catch (e) { this._packP = null; return null; }
       })();
-      return this._promise;
+      return this._packP;
     },
+    _loadInst(inst) {
+      if (this._inst[inst]) return this._inst[inst];
+      this._busy++; this.state = 'loading'; this._prog[inst] = 0; this._emit();
+      const OAC = global.OfflineAudioContext || global.webkitOfflineAudioContext;
+      const p = (async () => {
+        const pack = await this._pack();
+        const entries = pack ? pack.index.filter((e) => e.i === inst) : [];
+        const dctx = new OAC(1, 1, 44100);
+        let done = 0, failed = 0, idx = 0;
+        const total = Math.max(1, entries.length);
+        const run = async (e) => {
+          try {
+            const bytes = pack.ab.slice(pack.base + e.o, pack.base + e.o + e.l);   // cópia só na hora de decodificar
+            this.banks[inst][e.m] = prepareSample(await dctx.decodeAudioData(bytes));
+          } catch (x) { failed++; }
+          done++; this._prog[inst] = done / total; this._updateProgress();
+          if (done % 8 === 0) this._emit();
+        };
+        // 3 decodificações ao mesmo tempo (menos pico de memória que 4)
+        await Promise.all(Array.from({ length: 3 }, async () => { while (idx < entries.length) await run(entries[idx++]); }));
+        return entries.length > 0 && failed <= entries.length * 0.3;
+      })().then((ok) => { this._ok[inst] = ok; if (!ok) delete this._inst[inst]; return ok; })
+        .catch(() => { this._ok[inst] = false; delete this._inst[inst]; return false; })
+        .then((ok) => {
+          this._busy--;
+          if (this._busy <= 0) { this._busy = 0; this.state = Object.keys(this._ok).every((k) => this._ok[k]) ? 'ready' : 'error'; this.progress = 1; this._emit(); }
+          return ok;
+        });
+      this._inst[inst] = p;
+      return p;
+    },
+    _updateProgress() { const k = Object.keys(this._prog); this.progress = k.reduce((a, i) => a + this._prog[i], 0) / Math.max(1, k.length); },
+    /** Carrega os instrumentos pedidos (padrão: os dois). Idempotente. */
+    load(insts) {
+      const list = (insts && insts.length ? insts : ['ah', 'oh']).filter((i) => this.banks[i]);
+      return Promise.all(list.map((i) => this._loadInst(i))).then(() => this.state);
+    },
+    /** Instrumentos usados por um conjunto de vogais (ex.: ['A','O'] → ['ah','oh']). */
+    instsFor(vowels) { const s = new Set(); (vowels || []).forEach((v) => s.add(this.instFor(v))); if (!s.size) s.add('ah'); return [...s]; },
   };
 
   /* Envelope de crossfade com potência constante.
@@ -269,6 +294,7 @@
       this.active = new Set();
       this.timbre = opts.timbre || 'coral'; // 'coral' (amostras) | 'synth' (formantes)
       this.ensemble = opts.ensemble === 'many' ? 'many' : 'solo'; // 'solo' (um cantor por voz) | 'many' (vários cantores por voz)
+      this.light = !!opts.light;   // modo leve: reverb mais curto e menos camadas em "vários cantores" (menos processamento)
 
       this.master = ctx.createGain();
       this.master.gain.value = opts.master == null ? 0.8 : opts.master;
@@ -292,7 +318,7 @@
       this.dry = ctx.createGain();
       this.wet = ctx.createGain();
       this.reverbNode = ctx.createConvolver();
-      this.reverbNode.buffer = makeImpulse(ctx, 2.8, 2.4, this.rand);
+      this.reverbNode.buffer = makeImpulse(ctx, this.light ? 1.5 : 2.8, 2.4, this.rand);
 
       this.bus.connect(this.dry);
       this.dry.connect(this.comp);
@@ -328,6 +354,13 @@
 
     setMaster(v) { this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02); }
 
+    /** Liga/desliga o modo leve (vale já para o reverb e para as próximas notas). */
+    setLight(v) {
+      v = !!v; if (v === this.light) return;
+      this.light = v;
+      try { this.reverbNode.buffer = makeImpulse(this.ctx, v ? 1.5 : 2.8, 2.4, this.rand); } catch (e) { /* ignore */ }
+    }
+
     setReverb(v) {
       const t = this.ctx.currentTime;
       this.wet.gain.setTargetAtTime(v * 1.1, t, 0.03);
@@ -357,7 +390,11 @@
       const ctx = this.ctx;
       const vowel = VOWEL_INSTR[o.vowel] ? o.vowel : 'A';
       const smp = Samples.get(VOWEL_INSTR[vowel], o.midi);
-      if (!smp) return null;
+      if (!smp) {
+        // esse instrumento ainda não foi carregado (vogal pouco usada): carrega agora e usa a voz sintetizada nessa nota
+        if (Samples.state !== 'error' && !Samples._inst[VOWEL_INSTR[vowel]]) Samples.load([VOWEL_INSTR[vowel]]);
+        return null;
+      }
       const t = Math.max(o.t, ctx.currentTime);
       const dur = Math.max(0.08, o.dur);
       const vel = o.vel == null ? 0.9 : o.vel;
@@ -390,8 +427,8 @@
       // A nota começa no meio da amostra (pulando o ataque gravado), então ela nasce
       // pelo envelope e não por um novo "ataque" a cada troca.
       const many = this.ensemble === 'many';
-      const LAYERS = many ? 5 : 1;
-      const SPREAD = [-17, -8, 0, 9, 18];
+      const LAYERS = many ? (this.light ? 3 : 5) : 1;
+      const SPREAD = this.light ? [-14, 0, 15] : [-17, -8, 0, 9, 18];
       const layerGain = many ? 1.18 / Math.sqrt(LAYERS) : 1;   // camadas incoerentes somam em potência
       // notas fora do alcance gravado (Dó1–Dó6) usam a amostra da ponta, afinada por detune
       const cm = Math.min(SAMPLE_MAX, Math.max(SAMPLE_MIN, o.midi));
@@ -403,14 +440,16 @@
         src.detune.value = fine + (o.midi - cm) * 100;
         let lastNode = src;
         if (many) {
-          // vibrato lento, diferente em cada cantor
-          const lfo = ctx.createOscillator();
-          lfo.frequency.value = 4.4 + rnd() * 1.9;
-          const lg = ctx.createGain();
-          lg.gain.value = 3 + rnd() * 5;
-          lfo.connect(lg); lg.connect(src.detune);
-          lfo.start(env.start); lfo.stop(env.stopAt);
-          nodes.push(lfo);
+          // vibrato lento, diferente em cada cantor (no modo leve a gravação já tem o seu próprio vibrato)
+          if (!this.light) {
+            const lfo = ctx.createOscillator();
+            lfo.frequency.value = 4.4 + rnd() * 1.9;
+            const lg = ctx.createGain();
+            lg.gain.value = 3 + rnd() * 5;
+            lfo.connect(lg); lg.connect(src.detune);
+            lfo.start(env.start); lfo.stop(env.stopAt);
+            nodes.push(lfo);
+          }
           const g = ctx.createGain();
           g.gain.value = layerGain * (0.85 + rnd() * 0.3);
           src.connect(g); lastNode = g;
@@ -585,6 +624,9 @@
    * Assim dá para editar, mudar o BPM e ligar/desligar o loop durante a reprodução.
    * Posições são medidas em "steps" (semicolcheias = 1/4 de tempo).
    */
+  // Com a tela sendo gravada (ou o celular ocupado) a thread principal atrasa: agendar mais à frente evita as falhas no som
+  const TICK_MS = 40, LOOKAHEAD = 0.6;
+
   class Transport {
     constructor(host) {
       this.host = host; // { getLive, getNotes, getLength, getBpm, getLoop, getVowel, getVelocity, onEnd }
@@ -616,10 +658,10 @@
       if (this.pos >= L) this.pos = 0;
       this.p0 = this.pos;
       this.sp = this.pos;
-      this.t0 = live.ctx.currentTime + 0.06;
+      this.t0 = live.ctx.currentTime + 0.1;
       this.finishing = false;
       this.state = 'playing';
-      this.timer = setInterval(() => this.tick(), 25);
+      this.timer = setInterval(() => this.tick(), TICK_MS);
       this.tick();
     }
 
@@ -689,7 +731,7 @@
         return;
       }
 
-      const target = this.p0 + (now + 0.25 - this.t0) / sps;
+      const target = this.p0 + (now + LOOKAHEAD - this.t0) / sps;
       let guard = 0;
       while (this.sp < target - 1e-9 && guard++ < 8) {
         const k = Math.floor(this.sp / L + 1e-9);

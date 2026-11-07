@@ -732,6 +732,8 @@
     day:   { paper: '#d3bf96', ink: '#1d1209', text: '#25180c', muted: '#5b4528', staff: '#8c7550', staffW: 0.5, bold: 0.35, glow: 0 },
     // noite: terra escura; notas douradas e brancas com brilho
     night: { paper: '#241a12', ink: '#ffe08a', text: '#f6ecd6', muted: '#b59a6b', staff: '#6a5640', staffW: 0.5, bold: 0.3, glow: 0.8 },
+    // noite no modo leve: igual, mas sem o filtro de brilho (pesa na pintura da tela, principalmente gravando a tela)
+    nightLite: { paper: '#241a12', ink: '#ffe08a', text: '#f6ecd6', muted: '#b59a6b', staff: '#6a5640', staffW: 0.5, bold: 0.45, glow: 0 },
   };
 
   Object.assign(CC, { renderScore, keyName, downloadScorePdf, scoreThemes });

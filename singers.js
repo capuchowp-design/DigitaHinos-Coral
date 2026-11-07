@@ -61,7 +61,7 @@
 
   const S = {
     box: null, items: {}, on: true, level: { S: 0, A: 0, T: 0, B: 0 }, shown: { S: 0, A: 0, T: 0, B: 0 },
-    eng: null, an: {}, buf: null, sel: 'ALL',
+    eng: null, an: {}, buf: null, sel: 'ALL', light: false, skip: false, drawn: { S: -1, A: -1, T: -1, B: -1 },
   };
   try { S.on = global.localStorage.getItem(KEY) !== '0'; } catch (e) { /* sem armazenamento */ }
 
@@ -93,9 +93,17 @@
     if (S.eng === engine) return;
     S.eng = engine; S.an = {};
     ORDER.forEach((k) => {
-      try { const a = engine.ctx.createAnalyser(); a.fftSize = 2048; a.smoothingTimeConstant = 0; engine.voiceBus[k].connect(a); S.an[k] = a; } catch (e) { /* ignore */ }
+      try { const a = engine.ctx.createAnalyser(); a.fftSize = S.light ? 512 : 2048; a.smoothingTimeConstant = 0; engine.voiceBus[k].connect(a); S.an[k] = a; } catch (e) { /* ignore */ }
     });
-    S.buf = new Float32Array(2048);
+    S.buf = new Float32Array(S.light ? 512 : 2048);
+  }
+
+  /** Modo leve: analisa menos amostras e anima a 30 quadros por segundo. */
+  function setLight(v) {
+    v = !!v; if (v === S.light) return;
+    S.light = v;
+    ORDER.forEach((k) => { if (S.an[k]) S.an[k].fftSize = v ? 512 : 2048; });
+    S.buf = new Float32Array(v ? 512 : 2048);
   }
 
   function rmsOf(a) {
@@ -106,8 +114,11 @@
 
   const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
-  function draw(k, o) {
+  function draw(k, o, force) {
     const it = S.items[k]; if (!it) return;
+    // só redesenha o rosto quando a boca mudou de verdade (poupa pintura de SVG a cada quadro)
+    if (!force && Math.abs(o - S.drawn[k]) < 0.006 && !(o === 0 && S.drawn[k] !== 0)) return;
+    S.drawn[k] = o;
     const ry = 0.9 + o * 8.200, rx = 7.600 - o * 1.800, cy = 63.800 + o * 3.200;   // maxilar desce
     it.lips.setAttribute('cy', cy); it.lips.setAttribute('rx', rx + 1); it.lips.setAttribute('ry', ry + 1.100);
     it.hole.setAttribute('cy', cy); it.hole.setAttribute('rx', Math.max(0.5, rx - 1)); it.hole.setAttribute('ry', Math.max(0.2, ry - 0.2));
@@ -115,12 +126,14 @@
     it.teeth.setAttribute('y', cy - ry); it.tongue.setAttribute('cy', cy + ry * 0.85);
     it.brows.setAttribute('transform', 'translate(0 ' + (-o * 1.600).toFixed(2) + ')');
     it.body.setAttribute('transform', 'translate(0 ' + (o * 1.200).toFixed(2) + ')');
-    it.el.style.setProperty('--lv', o.toFixed(3));
+    const lv = Math.round(o * 12) / 12;   // o brilho em volta muda em degraus (cada mudança repinta a sombra)
+    if (lv !== it.lv) { it.lv = lv; it.el.style.setProperty('--lv', lv.toFixed(3)); }
   }
 
   /** Chamada a cada quadro de animação enquanto o player está aberto. */
   function tick() {
     if (!S.on || !S.box) return;
+    if (S.light && (S.skip = !S.skip)) return;    // 30 quadros por segundo
     const live = CC.app && CC.app.peekLive && CC.app.peekLive();
     const playing = CC.app && CC.app.transport.state === 'playing';
     if (live && live.engine) attach(live.engine);
@@ -139,7 +152,7 @@
     });
   }
 
-  function reset() { ORDER.forEach((k) => { S.shown[k] = 0; draw(k, 0); }); }
+  function reset() { ORDER.forEach((k) => { S.shown[k] = 0; draw(k, 0, true); }); }
 
-  CC.singers = { mount, setVisible, isOn: () => S.on, select, tick, reset, _state: S };
+  CC.singers = { mount, setLight, setVisible, isOn: () => S.on, select, tick, reset, _state: S };
 })(typeof window !== 'undefined' ? window : globalThis);

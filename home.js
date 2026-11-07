@@ -204,9 +204,11 @@
   function buildScoreView() {
     const box = $('#plScore');
     let h = '';
-    for (let i = 0; i < PL.pages; i++) h += '<div class="pl-page" data-p="' + i + '">' + PL.svg.svg(i, PL.night ? 'night' : 'day') + '<div class="pl-cursor" hidden></div></div>';
+    const theme = PL.night ? (APP.settings.light ? 'nightLite' : 'night') : 'day';
+    for (let i = 0; i < PL.pages; i++) h += '<div class="pl-page" data-p="' + i + '">' + PL.svg.svg(i, theme) + '<div class="pl-cursor" hidden></div></div>';
     box.innerHTML = '<div class="pl-pages" style="width:' + Math.round(PL.zoom * 100) + '%;max-width:' + Math.round(900 * PL.zoom) + 'px">' + h + '</div>';
-    $$('.pl-page', box).forEach((pg) => pg.addEventListener('click', (e) => seekFromClick(pg, e)));
+    PL.pgs = $$('.pl-page', box); PL.curs = PL.pgs.map((pg) => $('.pl-cursor', pg)); PL.cur = null; PL.sysKey = null; PL.sysKey0 = null;   // guarda os elementos: nada de procurar no DOM a cada quadro
+    PL.pgs.forEach((pg) => pg.addEventListener('click', (e) => seekFromClick(pg, e)));
     placeCursor(APP.transport.position());
   }
   /* modo noturno da partitura (a escolha fica salva) */
@@ -229,6 +231,7 @@
     const i = clampI(ZOOMS.indexOf(PL.zoom) + d, 0, ZOOMS.length - 1);
     PL.zoom = ZOOMS[i];
     const pages = $('#plScore .pl-pages'); if (pages) { pages.style.width = Math.round(PL.zoom * 100) + '%'; pages.style.maxWidth = Math.round(900 * PL.zoom) + 'px'; }
+    PL.sysKey = null; PL.sysKey0 = null;
   }
   const clampI = (v, a, b) => Math.max(a, Math.min(b, v));
   $('#plZoomIn').addEventListener('click', () => setZoom(1));
@@ -251,16 +254,24 @@
     const c = cols[lo], n = cols[lo + 1];
     let x = c.x;
     if (n && n.page === c.page && Math.abs(n.y1 - c.y1) < 1 && n.x > c.x && n.wq > c.wq) x = c.x + (n.x - c.x) * Math.min(1, Math.max(0, (w - c.wq) / (n.wq - c.wq)));
-    const L = PL.layout;
-    $$('#plScore .pl-page').forEach((pg) => {
-      const cur = $('.pl-cursor', pg), mine = +pg.dataset.p === c.page - 1;
-      if (!cur) return;
-      cur.hidden = !mine;
-      if (mine) { cur.style.left = (x - 1.5) / L.W * 100 + '%'; cur.style.top = c.y1 / L.H * 100 + '%'; cur.style.height = (c.y2 - c.y1) / L.H * 100 + '%'; }
-    });
+    const L = PL.layout, pgs = PL.pgs || [], curs = PL.curs || [];
+    const cur = curs[c.page - 1], pg = pgs[c.page - 1]; if (!cur || !pg) return;
+    const px = Math.round((x - 1.5) / L.W * 10000) / 100;     // % com 2 casas
+    const lc = PL.cur;
+    if (!lc || lc.page !== c.page || lc.y1 !== c.y1 || lc.y2 !== c.y2) {   // mudou de página/sistema: reposiciona e esconde os outros
+      curs.forEach((el, i) => { el.hidden = i !== c.page - 1; });
+      cur.style.top = c.y1 / L.H * 100 + '%'; cur.style.height = (c.y2 - c.y1) / L.H * 100 + '%';
+      PL.cur = { page: c.page, y1: c.y1, y2: c.y2, px: -1 };
+    }
+    if (PL.cur.px !== px) { cur.style.left = px + '%'; PL.cur.px = px; }
     // acompanha o cursor com a rolagem: o sistema (todas as pautas) em reprodução fica inteiro à vista
-    const sc = $('#plScore'), pg = $$('#plScore .pl-page')[c.page - 1]; if (!pg) return;
-    if (APP.transport.state === 'playing' || force) {
+    const sc = $('#plScore');
+    const key0 = c.page + ':' + Math.round(c.y1);
+    const nowT = performance.now();
+    // só mede o layout quando o sistema mudou, quando há rolagem horizontal (zoom) ou a cada ~150 ms; medir a cada quadro trava o celular
+    const canX = sc.scrollWidth > sc.clientWidth + 2;
+    if ((APP.transport.state === 'playing' || force) && (force || key0 !== PL.sysKey0 || (canX && nowT - (PL.lastMeasure || 0) > 150))) {
+      PL.lastMeasure = nowT; PL.sysKey0 = key0;
       const sr = sc.getBoundingClientRect(), pr = pg.getBoundingClientRect();
       const pTop = pr.top - sr.top + sc.scrollTop, pLeft = pr.left - sr.left + sc.scrollLeft;   // posição da página dentro da área rolável
       const top = pTop + c.y1 / L.H * pr.height, bottom = pTop + c.y2 / L.H * pr.height;
@@ -300,10 +311,10 @@
   }
   async function ensureVoices() {
     if (APP.settings.timbre !== 'coral') return;
-    const S = CC.Samples;
-    if (S.state === 'ready' || S.state === 'error') return;
+    const S = CC.Samples, need = APP.neededInsts();
+    if (need.every((i) => S._ok[i]) && S._busy === 0) return;
     $('#plStatus').textContent = 'Carregando vozes de coro…';
-    try { await S.load(); } catch (e) { /* usa o sintetizador */ }
+    try { await S.load(need); } catch (e) { /* usa o sintetizador */ }
   }
   playBtn.addEventListener('click', async () => {
     try {
@@ -347,6 +358,16 @@
 
   /* cantores animados */
   CC.singers.mount($('#plChoir'));
+  /* modo leve: menos processamento de som e de tela (para o Android, principalmente gravando a tela) */
+  $('#plLight').checked = !!APP.settings.light;
+  CC.singers.setLight(APP.settings.light);
+  $('#plLight').addEventListener('change', (e) => {
+    APP.settings.light = e.target.checked; APP.saveSettings();
+    const l = APP.peekLive(); if (l) l.engine.setLight(APP.settings.light);
+    CC.singers.setLight(APP.settings.light);
+    if (PL.night && PL.svg) { const sc = $('#plScore'), top = sc.scrollTop, left = sc.scrollLeft; buildScoreView(); sc.scrollTop = top; sc.scrollLeft = left; }
+    toast(APP.settings.light ? 'Modo leve ligado' : 'Modo leve desligado (qualidade máxima)');
+  });
   $('#plSingers').checked = CC.singers.isOn();
   $('#plSingers').addEventListener('change', (e) => CC.singers.setVisible(e.target.checked));
 
@@ -474,11 +495,12 @@
     const frame = () => {
       PL.raf = 0;
       if (current !== 'player') return;
+      if (APP.settings.light && (PL.skip = !PL.skip)) { PL.raf = requestAnimationFrame(frame); return; }   // modo leve: 30 quadros por segundo
       const playing = APP.transport.state === 'playing';
       placeCursor(APP.transport.position());
       CC.singers.tick();
       if (playing !== PL.wasPlaying) { PL.wasPlaying = playing; syncPlayBtn(); }
-      $('#plBpm').textContent = APP.getProject().bpm;
+      const bpm = APP.getProject().bpm; if (bpm !== PL.bpmShown) { PL.bpmShown = bpm; $('#plBpm').textContent = bpm; }
       PL.raf = requestAnimationFrame(frame);
     };
     PL.raf = requestAnimationFrame(frame);

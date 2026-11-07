@@ -29,6 +29,7 @@
   const defaults = {
     zoom: COARSE ? 26 : 20, notation: 'do', master: 0.8, reverb: 0.35,
     loop: true, follow: true, snap: 2, dur: 4, voice: 'S', chord: 'maj', timbre: 'coral', ensemble: 'solo',
+    light: /Android/i.test(navigator.userAgent || ''),   // modo leve: ligado por padrão no Android
   };
   const settings = Object.assign({}, defaults, CC.LS.get(CC.KEY_SETTINGS, {}));
   settings.zoom = ZOOMS.indexOf(settings.zoom) >= 0 ? settings.zoom : defaults.zoom;
@@ -59,8 +60,9 @@
     if (!live) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) throw new Error('Este navegador não suporta Web Audio API.');
-      const ctx = new AC({ latencyHint: 'interactive' });
-      const engine = new CC.Engine(ctx, { master: settings.master, reverb: settings.reverb, timbre: settings.timbre, ensemble: settings.ensemble });
+      // "playback": buffer de áudio maior = muito menos picotes quando o celular está ocupado (a latência extra não importa ao ouvir hinos)
+      const ctx = new AC({ latencyHint: 'playback' });
+      const engine = new CC.Engine(ctx, { master: settings.master, reverb: settings.reverb, timbre: settings.timbre, ensemble: settings.ensemble, light: settings.light });
       CC.applyVoiceLevels(engine, P.voices);
       live = { ctx, engine };
     }
@@ -68,6 +70,12 @@
     return live;
   }
   const syncLevels = () => { if (live) CC.applyVoiceLevels(live.engine, P.voices); };
+  /* quais instrumentos de coro (ah/oh) o projeto atual usa; só esses são decodificados na memória */
+  const neededInsts = () => {
+    const v = new Set(); try { P.notes.forEach((n) => v.add(n.o || P.voices[n.v].vowel)); Object.keys(P.voices).forEach((k) => v.add(P.voices[k].vowel)); } catch (e) { /* ignore */ }
+    return CC.Samples.instsFor([...v]);
+  };
+  const ensureSamples = () => { if (settings.timbre === 'coral') CC.Samples.load(neededInsts()); };
 
   function preview(notes) {
     try {
@@ -945,7 +953,7 @@
     $('#selTimbre').addEventListener('change', (e) => {
       settings.timbre = e.target.value; saveSettings();
       if (live) live.engine.setTimbre(settings.timbre);
-      if (settings.timbre === 'coral') CC.Samples.load();
+      ensureSamples();
       updateTimbreStatus();
       preview({ m: 64, v: settings.voice });
     });
@@ -1131,7 +1139,7 @@
     setTool('note');
     setActiveVoice(settings.voice);
     CC.Samples.on(updateTimbreStatus);
-    if (settings.timbre === 'coral') CC.Samples.load();
+    ensureSamples();
     updateTimbreStatus();
   }
 
@@ -1143,7 +1151,7 @@
 
   CC.app = {
     loadProject, serialize, getProject: () => P, getLive, transport, togglePlay, stopPlay, setBpm, syncLevels, toast,
-    settings, saveSettings, scoreForPdf, preview, peekLive: () => live,
+    settings, saveSettings, scoreForPdf, preview, peekLive: () => live, neededInsts, ensureSamples,
     totalSteps, getScore: () => loadedScore,
     setLength(n) { lenOverride = n || 0; },
     /** Muda o andamento sem marcar o projeto como alterado (usado pelo player). */
