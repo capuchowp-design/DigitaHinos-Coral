@@ -192,7 +192,8 @@
     const P = APP.getProject(), box = $('#plScore');
     const top = keepScroll ? box.scrollTop : 0;
     try {
-      const r = CC.renderScore(PL.score, { title: P.name, voice: PL.sel === 'ALL' ? null : PL.sel });
+      // coro completo: uma pauta para cada voz; voz escolhida: só a pauta dela
+      const r = CC.renderScore(PL.score, { title: P.name, voice: PL.sel === 'ALL' ? null : PL.sel, split: PL.sel === 'ALL' });
       PL.layout = r.layout; PL.pages = r.pages; PL.svg = r;
       buildScoreView();
       box.scrollTop = top;
@@ -203,11 +204,27 @@
   function buildScoreView() {
     const box = $('#plScore');
     let h = '';
-    for (let i = 0; i < PL.pages; i++) h += '<div class="pl-page" data-p="' + i + '">' + PL.svg.svg(i) + '<div class="pl-cursor" hidden></div></div>';
+    for (let i = 0; i < PL.pages; i++) h += '<div class="pl-page" data-p="' + i + '">' + PL.svg.svg(i, PL.night ? 'night' : 'day') + '<div class="pl-cursor" hidden></div></div>';
     box.innerHTML = '<div class="pl-pages" style="width:' + Math.round(PL.zoom * 100) + '%;max-width:' + Math.round(900 * PL.zoom) + 'px">' + h + '</div>';
     $$('.pl-page', box).forEach((pg) => pg.addEventListener('click', (e) => seekFromClick(pg, e)));
     placeCursor(APP.transport.position());
   }
+  /* modo noturno da partitura (a escolha fica salva) */
+  PL.night = !!CC.LS.get('dhcoral:scoreNight', false);
+  function syncThemeUi() {
+    const b = $('#plTheme'); if (!b) return;
+    b.setAttribute('aria-pressed', String(PL.night));
+    b.setAttribute('aria-label', PL.night ? 'Voltar ao modo claro da partitura' : 'Modo noturno da partitura');
+    b.querySelector('use').setAttribute('href', PL.night ? '#i-sun' : '#i-moon');
+    $('#plScore').classList.toggle('night', PL.night);
+  }
+  function setNight(on) {
+    PL.night = !!on; CC.LS.set('dhcoral:scoreNight', PL.night); syncThemeUi();
+    if (PL.svg) { const sc = $('#plScore'), top = sc.scrollTop, left = sc.scrollLeft; buildScoreView(); sc.scrollTop = top; sc.scrollLeft = left; }
+  }
+  $('#plTheme').addEventListener('click', () => setNight(!PL.night));
+  syncThemeUi();
+
   function setZoom(d) {
     const i = clampI(ZOOMS.indexOf(PL.zoom) + d, 0, ZOOMS.length - 1);
     PL.zoom = ZOOMS[i];

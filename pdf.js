@@ -34,20 +34,37 @@
     text(x, y, s, size, o) { this.cur.push(Object.assign({ t: 't', x, y, s: String(s), size, font: 'r', anchor: 'l', color: '#000' }, o)); }
 
     /* ── SVG ── */
-    pageSvg(i) {
+    pageSvg(i, theme) {
       const f = (n) => (Math.round(n * 100) / 100);
       const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      let out = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + this.W + ' ' + this.H + '" width="100%" style="display:block;background:#fff">';
-      this.pages[i].forEach((p) => {
+      const T = theme && CC.scoreThemes ? CC.scoreThemes[theme] : null;
+      // sem tema: igual ao PDF (preto no branco). Com tema: cores trocadas na hora de desenhar
+      const col = (c) => (T ? (c === '#000' ? T.ink : c === '#fff' ? T.paper : T.muted) : c);
+      const isStaffLine = (p) => p.t === 'p' && p.stroke && !p.fill && p.lw === 0.55;
+      const one = (p) => {
         if (p.t === 'p') {
           const d = p.c.map((c) => c[0] + c.slice(1).map(f).join(' ')).join('');
-          out += '<path d="' + d + '" fill="' + (p.fill ? p.color : 'none') + '"' + (p.stroke ? ' stroke="' + p.color + '" stroke-width="' + p.lw + '" stroke-linecap="' + (p.cap ? 'round' : 'butt') + '" stroke-linejoin="' + (p.join ? 'round' : 'miter') + '"' : '') + '/>';
-        } else {
-          out += '<text x="' + f(p.x) + '" y="' + f(p.y) + '" font-size="' + p.size + '" font-family="Helvetica,Arial,sans-serif" fill="' + p.color + '"'
-            + (p.font === 'b' ? ' font-weight="bold"' : '') + (p.font === 'i' ? ' font-style="italic"' : '')
-            + ' text-anchor="' + (p.anchor === 'm' ? 'middle' : p.anchor === 'r' ? 'end' : 'start') + '">' + esc(p.s) + '</text>';
+          if (T && isStaffLine(p)) return '<path d="' + d + '" fill="none" stroke="' + T.staff + '" stroke-width="' + T.staffW + '"/>';
+          const c = col(p.color);
+          // formas cheias na cor da tinta ganham um contorno fino: as notas ficam mais cheias e se destacam
+          const bold = T && p.fill && p.color === '#000' && T.bold ? ' stroke="' + c + '" stroke-width="' + T.bold + '" stroke-linejoin="round"' : '';
+          return '<path d="' + d + '" fill="' + (p.fill ? c : 'none') + '"' + (p.stroke ? ' stroke="' + c + '" stroke-width="' + p.lw + '" stroke-linecap="' + (p.cap ? 'round' : 'butt') + '" stroke-linejoin="' + (p.join ? 'round' : 'miter') + '"' : bold) + '/>';
         }
-      });
+        const c = T ? (p.color === '#000' ? T.text : T.muted) : p.color;
+        return '<text x="' + f(p.x) + '" y="' + f(p.y) + '" font-size="' + p.size + '" font-family="Helvetica,Arial,sans-serif" fill="' + c + '"'
+          + (p.font === 'b' ? ' font-weight="bold"' : '') + (p.font === 'i' ? ' font-style="italic"' : '')
+          + ' text-anchor="' + (p.anchor === 'm' ? 'middle' : p.anchor === 'r' ? 'end' : 'start') + '">' + esc(p.s) + '</text>';
+      };
+      const bg = T ? T.paper : '#fff';
+      let out = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + this.W + ' ' + this.H + '" width="100%" style="display:block;background:' + bg + '">';
+      if (T && T.glow) out += '<defs><filter id="gl' + i + '" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceGraphic" stdDeviation="' + T.glow + '" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+      const els = this.pages[i];
+      if (T) {
+        // pautas primeiro (sem brilho), depois tudo o mais
+        out += els.filter(isStaffLine).map(one).join('');
+        const rest = els.filter((p) => !isStaffLine(p)).map(one).join('');
+        out += T.glow ? '<g filter="url(#gl' + i + ')">' + rest + '</g>' : rest;
+      } else out += els.map(one).join('');
       return out + '</svg>';
     }
 
@@ -160,8 +177,18 @@
     const VC = { S: 0, A: 1, T: 2, B: 3 }, VNAME = { S: 'Soprano', A: 'Contralto', T: 'Tenor', B: 'Baixo' };
     const only = opts.voice && VC[opts.voice] != null ? opts.voice : null;
     const SK = only ? (VC[only] < 2 ? 't' : 'b') : null;     // pauta usada no modo de voz única
-    const LK = only ? SK : 't';                                // pauta que carrega as letras
-    const ev = only ? (() => {
+    const split = !only && !!opts.split;                      // uma pauta para cada voz (S, A, T, B)
+    const KEYS = only ? [SK] : split ? ['S', 'A', 'T', 'B'] : ['t', 'b'];   // pautas desenhadas, de cima para baixo
+    const single = !!(only || split);                         // cada pauta carrega uma voz só
+    const clefOf = (k) => (k === 'B' || k === 'b' ? 'b' : 't');   // tenor e contralto também em clave de sol (tenor soa 8ª abaixo)
+    const octOf = (k) => (k === 'T' ? 7 : 0);                 // tenor escrito uma oitava acima (clave de sol com 8 embaixo)
+    const stOf = (e) => (split ? e.st : (e.vc < 2 ? 't' : 'b'));
+    const LK = only ? SK : split ? 'S' : 't';                 // pauta que carrega as letras
+    const ev = split ? (() => {
+      const lyrAt = new Map();
+      evAll.forEach((e) => { if (e.lyr) { const k = e.mi + '|' + e.on.toFixed(3); if (!lyrAt.has(k)) lyrAt.set(k, e.lyr); } });
+      return evAll.map((e) => Object.assign({}, e, { st: 'SATB'[e.vc], vc: 0, lyr: e.vc === 0 ? (e.lyr || lyrAt.get(e.mi + '|' + e.on.toFixed(3)) || null) : e.lyr }));
+    })() : only ? (() => {
       const lyrAt = new Map();                                 // letras do hino (em geral escritas na voz de cima)
       evAll.forEach((e) => { if (e.lyr) { const k = e.mi + '|' + e.on.toFixed(3); if (!lyrAt.has(k)) lyrAt.set(k, e.lyr); } });
       const vc = SK === 't' ? 0 : 2;
@@ -173,8 +200,8 @@
     const LYR = 8.2, LYR_LH = 10.2;
 
     /* ─ organiza os eventos por compasso e pauta ─ */
-    const byM = meas.map(() => ({ t: [], b: [] }));
-    ev.forEach((e) => { if (e.mi >= 0 && e.mi < nM) byM[e.mi][e.vc < 2 ? 't' : 'b'].push(e); });
+    const byM = meas.map(() => { const o = {}; KEYS.forEach((k) => { o[k] = []; }); return o; });
+    ev.forEach((e) => { if (e.mi >= 0 && e.mi < nM) { const a = byM[e.mi][stOf(e)]; if (a) a.push(e); } });
 
     // junta eventos de uma linha (voz) que começam juntos e têm a mesma duração → acorde
     function lineObjs(events, mLen, vcWanted) {
@@ -200,9 +227,8 @@
 
     /* ─ Desenha-se compasso a compasso; primeiro calcula-se o "plano" (colunas e larguras) ─ */
     function planStaff(kind, mi) {
-      if (only && kind !== SK) return [];
       const events = byM[mi][kind], mLen = meas[mi].len;
-      const vcU = kind === 't' ? 0 : 2, vcL = kind === 't' ? 1 : 3;
+      const vcU = split ? 0 : (kind === 't' ? 0 : 2), vcL = split ? -1 : (kind === 't' ? 1 : 3);
       const U = lineObjs(events, mLen, vcU), L = lineObjs(events, mLen, vcL);
       const items = []; // {on, snd, q, notes, stem, line, rest, tieNext, tm}
       const dedupe = (notes) => { const seen = new Map(), o = []; notes.forEach((n) => { const k = n.sp + '|' + n.oc + '|' + n.al; const prev = seen.get(k); if (!prev) { seen.set(k, n); o.push(n); } else if (!prev.lyr && n.lyr) prev.lyr = n.lyr; }); return o; };   // uníssono: não perde a letra escrita na outra voz
@@ -212,13 +238,13 @@
       U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (lk.has(k)) sharedKeys.add(k); });
       const mk = (o, line) => ({ on: o.on, dur: o.dur, notes: dedupe(o.ev), line, tm: o.tm });
       const objs = [];
-      U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (sharedKeys.has(k)) { const m = mk(o, 'S'); m.notes = dedupe(o.ev.concat(lk.get(k).ev)); objs.push(m); } else objs.push(mk(o, only ? 'S' : 'U')); });
+      U.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (sharedKeys.has(k)) { const m = mk(o, 'S'); m.notes = dedupe(o.ev.concat(lk.get(k).ev)); objs.push(m); } else objs.push(mk(o, single ? 'S' : 'U')); });
       L.forEach((o) => { const k = o.on.toFixed(4) + '|' + o.dur.toFixed(4); if (!sharedKeys.has(k)) objs.push(mk(o, 'L')); });
       objs.sort((a, b) => a.on - b.on || (a.line === 'U' ? -1 : 1));
       // decompõe cada objeto em figuras (com ligaduras quando necessário) e calcula posição na pauta
-      const dB = D_BOTTOM[kind];
+      const dB = D_BOTTOM[clefOf(kind)];
       objs.forEach((o) => {
-        o.notes.forEach((n) => { n.pos = n.oc * 7 + n.sp - dB; });
+        o.notes.forEach((n) => { n.pos = n.oc * 7 + n.sp - dB + octOf(kind); });
         o.notes.sort((a, b) => a.pos - b.pos);
         const figs = figures(o.dur, o.tm); let t = o.on;
         figs.forEach((f, i) => {
@@ -245,19 +271,19 @@
         });
       };
       if (!items.length) addRests([[0, mLen]], 'S', 'S');
-      else if (only || sameG(gU, gL)) addRests(gU, 'S', 'S');
+      else if (single || sameG(gU, gL)) addRests(gU, 'S', 'S');
       else { if (hasU || !hasL) addRests(gU, 'U', 'U'); if (hasL) addRests(gL, 'L', 'L'); }
       return items.concat(restItems).sort((a, b) => a.on - b.on || (a.rest ? 1 : -1));
     }
 
     /* ─ planos de cada compasso (colunas, larguras, acidentes) ─ */
     const plans = meas.map((m, mi) => {
-      const staves = { t: planStaff('t', mi), b: planStaff('b', mi) };
-      const colSet = new Set(); ['t', 'b'].forEach((k) => staves[k].forEach((it) => colSet.add(it.on.toFixed(4))));
+      const staves = {}; KEYS.forEach((k) => { staves[k] = planStaff(k, mi); });
+      const colSet = new Set(); KEYS.forEach((k) => staves[k].forEach((it) => colSet.add(it.on.toFixed(4))));
       const onsets = [...colSet].map(Number).sort((a, b) => a - b);
       const colIdx = new Map(); onsets.forEach((o, i) => colIdx.set(o.toFixed(4), i));
       // acidentes por pauta (estado do compasso)
-      ['t', 'b'].forEach((k) => {
+      KEYS.forEach((k) => {
         const state = new Map();
         const list = staves[k].filter((it) => !it.rest).sort((a, b) => a.on - b.on);
         const done = new Set();
@@ -277,7 +303,7 @@
       const cols = onsets.map((on, i) => {
         const nxt = i + 1 < onsets.length ? onsets[i + 1] : m.len;
         let accCols = 0;
-        ['t', 'b'].forEach((k) => staves[k].forEach((it) => {
+        KEYS.forEach((k) => staves[k].forEach((it) => {
           if (it.rest || Math.abs(it.on - on) > EPS || it.noAcc) return;
           const withAcc = it.notes.filter((n) => n.acc).sort((a, b) => b.pos - a.pos);
           const last = []; withAcc.forEach((n) => { let c = last.findIndex((p) => p - n.pos >= 5); if (c < 0) { c = last.length; last.push(n.pos); } else last[c] = n.pos; n.accCol = c; });
@@ -324,7 +350,12 @@
 
     /* ─ quebra em sistemas ─ */
     const gapMid = (nVerses ? 38 + nVerses * LYR_LH : 48);
-    const STAFF_H = 4 * SP, SYS_H = only ? STAFF_H + (nVerses ? 22 + (nVerses - 1) * LYR_LH : 0) : STAFF_H + gapMid + STAFF_H, SYS_ADV = SYS_H + (only ? 40 : 44);
+    const STAFF_H = 4 * SP;
+    const lyrH = nVerses ? 22 + (nVerses - 1) * LYR_LH : 0;
+    // quatro pautas: o espaço abaixo da primeira (soprano) leva as letras; entre as demais, só o respiro das notas
+    const GAP_V = 30, gapAfter = (idx) => (idx === 0 ? Math.max(GAP_V, lyrH + 17) : GAP_V);
+    const stTop = (idx) => { let y = 0; for (let j = 0; j < idx; j++) y += STAFF_H + gapAfter(j); return y; };   // desloca do topo do sistema
+    const SYS_H = split ? stTop(3) + STAFF_H : only ? STAFF_H + lyrH : STAFF_H + gapMid + STAFF_H, SYS_ADV = SYS_H + (split ? 38 : only ? 40 : 44);
     const nAcc = Math.abs(fifths);
     const prefixW = (first) => 24 + nAcc * 6.8 + (first ? 20 : 2) + 8;
     const systems = []; { let cur = [], w = 0, first = true;
@@ -414,8 +445,9 @@
     /* ─ desenho de um sistema ─ */
     function drawSystem(sys, sysIdx, yTop) {
       const first = sysIdx === 0;
-      const yT = yTop, yB = only ? yTop : yTop + STAFF_H + gapMid;       // topo da pauta de sol / de fá (voz única: só uma pauta)
-      const staffYs = only ? [yT] : [yT, yB];
+      const yT = yTop, yB = split ? yTop + stTop(3) : only ? yTop : yTop + STAFF_H + gapMid;       // topo da 1ª pauta / da última (voz única: só uma pauta)
+      const staffYs = split ? [0, 1, 2, 3].map((j) => yTop + stTop(j)) : only ? [yT] : [yT, yB];
+      const yOf = {}; KEYS.forEach((k, j) => { yOf[k] = staffYs[j]; });
       const xL = ML, xR = W - MR;
       // geometria do início da música neste sistema (igual à usada mais abaixo)
       const startX0 = xL + 24 + 3 + (fifths ? nAcc * 6.8 + 2 : 0) + (first ? 20 : 0) + 6;
@@ -426,14 +458,25 @@
       // linhas das pautas
       staffYs.forEach((yy) => { for (let i = 0; i < 5; i++) doc.line(xL, yy + i * SP, xEnd, yy + i * SP, 0.55); });
       doc.line(xL, yT, xL, yB + STAFF_H, 0.9);
-      if (!only) { brace(xL - 9, yT, yB + STAFF_H); trebleClef(xL + 11, yT); bassClef(xL + 11, yB); }
+      if (split) {
+        // colchete + nome da voz (e clave de cada pauta)
+        doc.rect(xL - 6.5, yT - 0.6, 2.4, yB + STAFF_H - yT + 1.2);
+        doc.path([['M', xL - 4.1, yT - 0.6], ['C', xL - 1.8, yT - 1.6, xL, yT - 2.6, xL + 1.6, yT - 4.2], ['C', xL, yT - 1.6, xL - 1.8, yT, xL - 4.1, yT + 1.4], ['Z']], { fill: true });
+        doc.path([['M', xL - 4.1, yB + STAFF_H + 0.6], ['C', xL - 1.8, yB + STAFF_H + 1.6, xL, yB + STAFF_H + 2.6, xL + 1.6, yB + STAFF_H + 4.2], ['C', xL, yB + STAFF_H + 1.6, xL - 1.8, yB + STAFF_H, xL - 4.1, yB + STAFF_H - 1.4], ['Z']], { fill: true });
+        KEYS.forEach((k) => {
+          doc.text(xL - 10, yOf[k] + 2 * SP + 3.4, k, 10, { font: 'b', anchor: 'r', color: '#555' });
+          if (clefOf(k) === 't') trebleClef(xL + 11, yOf[k]); else bassClef(xL + 11, yOf[k]);
+          if (k === 'T') doc.text(xL + 15, yOf[k] + 4 * SP + 9, '8', 7.5, { font: 'b', anchor: 'm' });   // clave de sol oitavada (tenor)
+        });
+      }
+      else if (!only) { brace(xL - 9, yT, yB + STAFF_H); trebleClef(xL + 11, yT); bassClef(xL + 11, yB); }
       else if (SK === 't') trebleClef(xL + 11, yT); else bassClef(xL + 11, yT);
       let px = xL + 24;
       const drawKey = (xx) => {
         if (!fifths) return xx;
         for (let i = 0; i < nAcc; i++) {
-          [['t', yT], ['b', yB]].filter(([k]) => !only || k === SK).forEach(([k, yy]) => {
-            const pos = (fifths > 0 ? SHARP_POS[k][i] : FLAT_POS[k][i]), y = yy + 4 * SP - pos * SP / 2;
+          KEYS.map((k) => [k, yOf[k]]).forEach(([k, yy]) => {
+            const ck = clefOf(k), pos = (fifths > 0 ? SHARP_POS[ck][i] : FLAT_POS[ck][i]), y = yy + 4 * SP - pos * SP / 2;
             if (fifths > 0) sharpAt(xx + i * 6.8, y); else flatAt(xx + i * 6.8, y);
           });
         }
@@ -468,11 +511,11 @@
         // posições
         const scaleX = (c) => xm0 + lead + (c.x - 9) * f + 9 - (m.fwd ? 0 : 0);
         const colX = pl.cols.map((c) => xm0 + lead + 2 + c.x * f - 2 * f + 0 * 0);
-        pl.cols.forEach((c, ci) => { sysInfo.xs.push({ wq: m.start + c.on, x: colX[ci] }); layout.cols.push({ wq: m.start + c.on, page: pageNo, x: colX[ci], y1: yT - 10, y2: yB + STAFF_H + 6 + (only && nVerses ? 22 + (nVerses - 1) * LYR_LH - 6 : 0), mi }); });
+        pl.cols.forEach((c, ci) => { sysInfo.xs.push({ wq: m.start + c.on, x: colX[ci] }); layout.cols.push({ wq: m.start + c.on, page: pageNo, x: colX[ci], y1: yT - 10, y2: yB + STAFF_H + 6 + (only && nVerses ? lyrH - 6 : 0), mi }); });
         const xmEnd = xm0 + mw;
         // desenha cada pauta
-        (only ? [SK] : ['t', 'b']).forEach((kind) => {
-          const yTop = kind === 't' ? yT : yB, dB = D_BOTTOM[kind];
+        KEYS.forEach((kind) => {
+          const yTop = yOf[kind], dB = D_BOTTOM[clefOf(kind)];
           const posY = (pos) => yTop + 4 * SP - pos * SP / 2;
           const items = pl.staves[kind];
           const xOf = (it) => colX[pl.colIdx.get(it.on.toFixed(4))];
@@ -633,7 +676,7 @@
       vg.forEach((b) => { const yy = yT - 14; doc.line(b.x1 + 1, yy, b.x2 - 3, yy, 0.7); doc.line(b.x1 + 1, yy, b.x1 + 1, yy + 8, 0.7); doc.text(b.x1 + 4, yy + 8, b.label.join('., ') + '.', 7.5, { font: 'b' }); });
       // letras: textos e hífens
       lyricsAcc.forEach((arr, vi) => {
-        const yy = yT + STAFF_H + 22 + vi * LYR_LH;
+        const yy = yT + STAFF_H + 22 + vi * LYR_LH;   // (em quatro pautas, a primeira é a do soprano: as letras ficam logo abaixo dela)
         arr.sort((a, b) => a.x - b.x);
         arr.forEach((it, i) => {
           doc.text(it.x, yy, it.t, LYR, { anchor: 'm' });
@@ -670,7 +713,7 @@
     const { doc, layout } = engrave(score, opts);
     return {
       layout, pages: doc.pages.length,
-      svg: (i) => doc.pageSvg(i),
+      svg: (i, theme) => doc.pageSvg(i, theme),
       pdf: () => doc.toPdf({ title: (opts && opts.title) || score.title }),
     };
   }
@@ -683,5 +726,13 @@
     return r.pages;
   }
 
-  Object.assign(CC, { renderScore, keyName, downloadScorePdf });
+  /* Cores da visualização na tela (o PDF continua preto no branco, bom para imprimir) */
+  const scoreThemes = {
+    // dia: pergaminho escuro, terroso; notas em marrom quase preto, pautas finas e discretas
+    day:   { paper: '#d3bf96', ink: '#1d1209', text: '#25180c', muted: '#5b4528', staff: '#8c7550', staffW: 0.5, bold: 0.35, glow: 0 },
+    // noite: terra escura; notas douradas e brancas com brilho
+    night: { paper: '#241a12', ink: '#ffe08a', text: '#f6ecd6', muted: '#b59a6b', staff: '#6a5640', staffW: 0.5, bold: 0.3, glow: 0.8 },
+  };
+
+  Object.assign(CC, { renderScore, keyName, downloadScorePdf, scoreThemes });
 })(typeof window !== 'undefined' ? window : globalThis);
